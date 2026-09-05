@@ -111,6 +111,8 @@ module storage 'modules/storage.bicep' = {
     blobDnsZoneId: network.outputs.blobDnsZoneId
     tableDnsZoneId: network.outputs.tableDnsZoneId
     queueDnsZoneId: network.outputs.queueDnsZoneId
+    fileDnsZoneId: network.outputs.fileDnsZoneId
+    contentShareName: toLower(functionAppName)
     tags: tags
   }
 }

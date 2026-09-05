@@ -15,6 +15,9 @@ var privateDnsZoneNames = [
   'privatelink.queue.${environment().suffixes.storage}'
   'privatelink.documents.azure.com'
   'privatelink.search.windows.net'
+  // The Elastic Premium plan mounts its content share (WEBSITE_CONTENTSHARE) over the VNet,
+  // so Azure Files needs a private endpoint too.
+  'privatelink.file.${environment().suffixes.storage}'
 ]
 
 resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
@@ -87,3 +90,4 @@ output tableDnsZoneId string = privateDnsZones[7].id
 output queueDnsZoneId string = privateDnsZones[8].id
 output cosmosDnsZoneId string = privateDnsZones[9].id
 output searchDnsZoneId string = privateDnsZones[10].id
+output fileDnsZoneId string = privateDnsZones[11].id
