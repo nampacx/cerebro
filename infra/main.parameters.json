@@ -17,8 +17,11 @@
     "postgresEntraAdminPrincipalName": {
       "value": "${POSTGRES_ENTRA_ADMIN_PRINCIPAL_NAME}"
     },
+    "postgresEntraAdminPrincipalType": {
+      "value": "${POSTGRES_ENTRA_ADMIN_PRINCIPAL_TYPE=User}"
+    },
     "postgresAdminPassword": {
-      "value": "${POSTGRES_ADMIN_PASSWORD}"
+      "value": "${POSTGRES_ADMIN_PASSWORD=}"
     },
     "publicNetworkAccess": {
       "value": "${PUBLIC_NETWORK_ACCESS=Disabled}"
