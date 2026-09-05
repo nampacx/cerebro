@@ -10,7 +10,7 @@ Retrieval-augmented generation platform with **per-user row-level security**:
 - **Azure Static Web App** (React + Vite) example client with document upload, status tracking and a chat UI with conversation history
 - **Entra ID authorization** end to end; the caller's `oid`/`groups` claims drive RLS on retrieval
 - **A2A**: agent card + JSON-RPC endpoint, including the **on-behalf-of (OBO)** flow so partner agents act as the end user
-- **Enterprise networking**: VNet integration, private endpoints + private DNS for PostgreSQL, Blob/Table/Queue, Cosmos DB, Key Vault, App Configuration and Foundry; managed identity everywhere; Key Vault for secrets; App Configuration for app settings
+- **Enterprise networking**: VNet integration, private endpoints + private DNS for PostgreSQL, Blob/Table/Queue, Cosmos DB, Key Vault, App Configuration, Azure AI Search and Foundry; managed identity everywhere; Key Vault for secrets; App Configuration for app settings
 
 ```mermaid
 flowchart LR
@@ -23,6 +23,7 @@ flowchart LR
   FN --> TBL[(Azure Table<br/>conversation index)]
   FN --> AI[Foundry<br/>GPT-5 + embeddings +<br/>Document Intelligence +<br/>conversations]
   AI --> COSMOS[(Cosmos DB<br/>thread storage)]
+  AI --> SRCH[(Azure AI Search<br/>agent vector store<br/>required by capability host)]
   FN --> KV[Key Vault]
   FN --> CFG[App Configuration]
 ```
@@ -31,7 +32,7 @@ flowchart LR
 
 | Path | Purpose |
 |---|---|
-| `infra/` | Bicep (azd-compatible): VNet, private endpoints, PostgreSQL, Foundry + Cosmos DB thread storage, Function App, Static Web App, Key Vault, App Configuration, monitoring |
+| `infra/` | Bicep (azd-compatible): VNet, private endpoints, PostgreSQL, Foundry + Cosmos DB thread storage + Azure AI Search, Function App, Static Web App, Key Vault, App Configuration, monitoring |
 | `db/schema.sql` | pgvector schema, tables and row-level security policies |
 | `scripts/setup.ps1` | **One-shot setup**: prerequisites, azd environment, app registration, `azd up`, post-deployment redirect URIs and (optionally) the database |
 | `scripts/setup-app-registration.ps1` | Creates/updates the Entra ID app registration (API scope, groups claim, redirect URIs, client secret) |
@@ -65,9 +66,10 @@ The SPA polls `/api/documents` while any document is `pending` or `processing`.
 
 ## Chat history
 
-- History lives in **Microsoft Foundry conversations** (`/openai/v1/conversations`), persisted in the **customer-managed Cosmos DB** account attached to the Foundry project through a `CosmosDB` connection plus an `Agents` capability host (`threadStorageConnections` + `storageConnections`; no Azure AI Search is needed because retrieval is served by pgvector).
+- History lives in **Microsoft Foundry conversations** (`/openai/v1/conversations`), persisted in the **customer-managed Cosmos DB** account attached to the Foundry project through a `CosmosDB` connection plus an `Agents` capability host.
+- The capability host's connection set is **atomic**: `threadStorageConnections` (Cosmos DB), `storageConnections` (Blob Storage) and `vectorStoreConnections` (**Azure AI Search**) must all be supplied together, or the control plane rejects the configuration with `Invalid connections configuration received. All connections must be provided, else omitted.` That is why an Azure AI Search service is deployed even though document retrieval is served entirely by **pgvector** — the Search instance only backs the agent runtime's own vector store and stays idle in this solution. It defaults to the cheapest usable tier; override with `azd env set SEARCH_SKU standard`.
 - An **Azure Table** (`conversations`, `PartitionKey` = user object id) indexes each user's conversation ids and is the authorization boundary: a conversation can only be read, continued or deleted from the owner's partition.
-- If the capability-host configuration is rejected in your region, set `azd env set USE_CUSTOM_FOUNDRY_STORAGE false` to fall back to Microsoft-managed thread storage.
+- If you would rather not pay for Azure AI Search, set `azd env set USE_CUSTOM_FOUNDRY_STORAGE false` to fall back to Microsoft-managed thread storage; the Cosmos DB, Storage and Search connections and the capability hosts are then skipped entirely.
 
 ## Web application
 
@@ -205,7 +207,7 @@ npm run dev
 ## Security notes
 
 - All data-plane access uses the function app's **system-assigned managed identity** (Blob Data Owner, Queue/Table Data Contributor for the blob trigger and conversation index, Cognitive Services OpenAI User, Cognitive Services User, Key Vault Secrets User, App Configuration Data Reader; Entra-native PostgreSQL role).
-- The Foundry project identity gets Cosmos DB Operator + built-in Cosmos data contributor and Storage Blob Data Contributor so agent conversations persist to your own accounts; Cosmos local auth is disabled.
+- The Foundry project identity gets Cosmos DB Operator + built-in Cosmos data contributor, Storage Blob Data Contributor, and Search Index Data Contributor + Search Service Contributor so agent conversations persist to your own accounts; Cosmos and Azure AI Search local auth are disabled and both are reached over Entra only.
 - Conversation ownership is enforced by the Azure Table index, so Foundry conversation ids are never usable across users (including through the A2A `contextId`).
 - `disableLocalAuth` is set on Foundry and App Configuration; storage blob public access is off.
 - Easy Auth (`authsettingsV2`) rejects unauthenticated requests at the platform edge when `AUTH_CLIENT_ID` is set; the code additionally validates the JWT and extracts `oid`/`groups` for RLS.
