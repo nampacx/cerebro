@@ -207,6 +207,8 @@ module appConfig 'modules/appconfig.bicep' = {
     publicNetworkAccess: publicNetworkAccess
     privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
     appConfigDnsZoneId: network.outputs.appConfigDnsZoneId
+    deployerPrincipalId: postgresEntraAdminObjectId
+    deployerPrincipalType: postgresEntraAdminPrincipalType
     tags: tags
     keyValues: [
       { name: 'Rag:OpenAiEndpoint', value: ai.outputs.openAiEndpoint }
