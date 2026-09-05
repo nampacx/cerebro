@@ -128,6 +128,7 @@ resource projectCapabilityHost 'Microsoft.CognitiveServices/accounts/projects/ca
 }
 
 resource chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {
+  parent: account
   name: chatModelDeploymentName
   sku: {
     name: 'GlobalStandard'
