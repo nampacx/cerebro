@@ -33,6 +33,7 @@ flowchart LR
 |---|---|
 | `infra/` | Bicep (azd-compatible): VNet, private endpoints, PostgreSQL, Foundry + Cosmos DB thread storage, Function App, Static Web App, Key Vault, App Configuration, monitoring |
 | `db/schema.sql` | pgvector schema, tables and row-level security policies |
+| `scripts/setup.ps1` | **One-shot setup**: prerequisites, azd environment, app registration, `azd up`, post-deployment redirect URIs and (optionally) the database |
 | `scripts/setup-app-registration.ps1` | Creates/updates the Entra ID app registration (API scope, groups claim, redirect URIs, client secret) |
 | `scripts/setup-database.ps1` | Creates the managed-identity DB role and applies the schema |
 | `src/RagApp.Functions/` | Function app: upload, async ingestion (blob trigger), chat agent, conversations, A2A endpoints |
@@ -86,51 +87,54 @@ The SPA polls `/api/documents` while any document is `pending` or `processing`.
 
 ### 1. Prerequisites
 
-- Azure subscription; [azd](https://aka.ms/azd), Azure CLI, .NET 10 SDK, `psql`
-- An **Entra ID app registration** for the API. Create it with the script (recommended):
+- Azure subscription; [azd](https://aka.ms/azd), Azure CLI, .NET 10 SDK, Node.js 20+, `psql`
+- `az login` (the signed-in user becomes the PostgreSQL Entra administrator)
 
-  ```powershell
-  ./scripts/setup-app-registration.ps1 -DisplayName rag-app -ApplyToAzdEnv
-  ```
-
-  It creates/updates the registration, exposes the `access_as_user` scope, enables the `groups` claim on tokens, adds the SPA + Static Web Apps redirect URIs, issues the client secret, and writes `AUTH_CLIENT_ID` / `AUTH_CLIENT_SECRET` into the azd environment. Re-run it after `azd up` with `-StaticWebAppHostname <swa-host>` to register the deployed Static Web App origin.
-
-  <details>
-  <summary>Equivalent manual steps</summary>
-
-  - Expose an API → scope `access_as_user`; Application ID URI `api://<client-id>`
-  - Token configuration → add the **groups** claim to access tokens
-  - Add a **Single-page application** redirect URI for the Static Web App origin (`https://<swa-hostname>`) and `http://localhost:5173` for local development
-  - Add a **Web** redirect URI `https://<swa-hostname>/.auth/login/aad/callback` for the Static Web Apps auth provider
-  - Create a **client secret** for the Static Web Apps auth provider
-  - Note the client id → `AUTH_CLIENT_ID`
-  </details>
-- Node.js 20+ for the web client
-
-### 2. Provision + deploy
-
-```bash
-azd init          # pick an environment name
-
-# Skip the next two lines if you ran setup-app-registration.ps1 with -ApplyToAzdEnv
-azd env set AUTH_CLIENT_ID <app-registration-client-id>
-azd env set AUTH_CLIENT_SECRET '<app-registration-client-secret>'   # used by Static Web Apps auth
-
-azd env set POSTGRES_ENTRA_ADMIN_OBJECT_ID $(az ad signed-in-user show --query id -o tsv)
-azd env set POSTGRES_ENTRA_ADMIN_PRINCIPAL_NAME $(az ad signed-in-user show --query userPrincipalName -o tsv)
-azd env set POSTGRES_ADMIN_PASSWORD '<strong-password>'      # stored in Key Vault
-azd env set PUBLIC_NETWORK_ACCESS Disabled                   # Enabled for dev/test
-azd up
-```
-
-Default location is **`swedencentral`** (PostgreSQL Flexible Server capacity is constrained in many other regions); override with `azd env set AZURE_LOCATION <region>`.
-
-Once the Static Web App exists, add its origin to the registration and redeploy the client so `config.json` picks up the final values:
+### 2. One-shot setup
 
 ```powershell
-./scripts/setup-app-registration.ps1 -DisplayName rag-app -StaticWebAppHostname (azd env get-value STATIC_WEB_APP_URL) -SkipSecret
+./scripts/setup.ps1 -EnvironmentName rag-dev
+```
+
+That single script does everything:
+
+1. Verifies `az` / `azd` and the signed-in Azure context.
+2. Creates or selects the azd environment.
+3. Creates/updates the **Entra ID app registration** — `access_as_user` scope, `groups` claim, SPA + Static Web Apps redirect URIs, client secret — and writes `AUTH_CLIENT_ID` / `AUTH_CLIENT_SECRET` into the environment.
+4. Sets the remaining azd settings (PostgreSQL Entra admin, location, network access). **No password is set** — the PostgreSQL admin password is generated inside Bicep and stored in Key Vault as `postgres-admin-password`.
+5. Runs `azd up` (provision + deploy).
+6. Registers the deployed Static Web App origin on the app registration and redeploys the web client so `config.json` picks up the final values.
+7. Optionally initializes the database (`-InitializeDatabase`).
+
+Useful switches:
+
+| Switch | Purpose |
+|---|---|
+| `-PublicNetworkAccess Enabled` | Dev/test: reach PostgreSQL and the other services from your machine |
+| `-InitializeDatabase` | Also run `setup-database.ps1` after deployment (requires `psql` and public access) |
+| `-SkipDeploy` | Only configure the app registration and the azd environment |
+| `-Location` / `-StaticWebAppLocation` | Override the default `swedencentral` / `westeurope` regions |
+| `-AppRegistrationDisplayName` | Name of the Entra app registration (defaults to the environment name) |
+
+Default location is **`swedencentral`** (PostgreSQL Flexible Server capacity is constrained in many other regions).
+
+<details>
+<summary>Running the steps manually</summary>
+
+```powershell
+azd env new rag-dev
+./scripts/setup-app-registration.ps1 -DisplayName rag-dev -ApplyToAzdEnv
+azd env set POSTGRES_ENTRA_ADMIN_OBJECT_ID (az ad signed-in-user show --query id -o tsv)
+azd env set POSTGRES_ENTRA_ADMIN_PRINCIPAL_NAME (az ad signed-in-user show --query userPrincipalName -o tsv)
+azd env set PUBLIC_NETWORK_ACCESS Disabled   # Enabled for dev/test
+azd up
+./scripts/setup-app-registration.ps1 -DisplayName rag-dev -StaticWebAppHostname (azd env get-value STATIC_WEB_APP_URL) -SkipSecret
 azd deploy web
 ```
+
+Equivalent portal steps for the app registration: expose an API with scope `access_as_user` and Application ID URI `api://<client-id>`; add the **groups** claim to access and id tokens; add a **Single-page application** redirect URI for the Static Web App origin plus `http://localhost:5173`; add a **Web** redirect URI `https://<swa-hostname>/.auth/login/aad/callback`; create a client secret; note the client id → `AUTH_CLIENT_ID`.
+
+</details>
 
 ### 3. Initialize the database
 
@@ -206,3 +210,4 @@ npm run dev
 - `disableLocalAuth` is set on Foundry and App Configuration; storage blob public access is off.
 - Easy Auth (`authsettingsV2`) rejects unauthenticated requests at the platform edge when `AUTH_CLIENT_ID` is set; the code additionally validates the JWT and extracts `oid`/`groups` for RLS.
 - With `PUBLIC_NETWORK_ACCESS=Disabled`, all backing services are reachable only through private endpoints inside the VNet.
+- The PostgreSQL local admin password is **generated during deployment** from a per-deployment GUID (`newGuid()`), never handled by a human or written to the azd environment, and stored in Key Vault as `postgres-admin-password`. It exists only for break-glass access — the application authenticates with Entra. Because it is regenerated on each `azd up`, pin it with `azd env set POSTGRES_ADMIN_PASSWORD '<value>'` if you need a stable value.

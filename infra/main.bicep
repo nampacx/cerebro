@@ -22,8 +22,12 @@ param postgresEntraAdminPrincipalName string
 param postgresEntraAdminPrincipalType string = 'User'
 
 @secure()
-@description('PostgreSQL local admin password (stored in Key Vault; app itself uses Entra managed identity).')
-param postgresAdminPassword string
+@description('Optional override for the PostgreSQL local admin password. Leave empty (default) to have the deployment generate a strong random password. Either way it is stored in Key Vault as "postgres-admin-password"; the app itself authenticates with its Entra managed identity.')
+param postgresAdminPassword string = ''
+
+@secure()
+@description('Random seed used to derive the generated PostgreSQL admin password. Do not set this manually - the default produces a new GUID per deployment.')
+param postgresAdminPasswordSeed string = newGuid()
 
 @description('Enabled for dev/test scenarios; Disabled for enterprise/production private-only access.')
 @allowed(['Enabled', 'Disabled'])
@@ -53,6 +57,13 @@ var tags = { 'azd-env-name': environmentName }
 var resourceToken = toLower(uniqueString(subscription().id, environmentName))
 var functionAppName = 'func-${resourceToken}'
 var functionAppUrl = 'https://${functionAppName}.azurewebsites.net'
+
+// Strong password derived from a per-deployment GUID: upper + lower + digits + symbol,
+// 25 characters. Only used for the local `pgadmin` login, which is never used by the
+// application (it connects with its managed identity) - the value is kept in Key Vault
+// for break-glass access.
+var generatedPostgresAdminPassword = 'Pg${toUpper(substring(uniqueString(postgresAdminPasswordSeed), 0, 7))}${uniqueString(subscription().id, environmentName, postgresAdminPasswordSeed)}#4z'
+var effectivePostgresAdminPassword = empty(postgresAdminPassword) ? generatedPostgresAdminPassword : postgresAdminPassword
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: 'rg-${environmentName}'
@@ -128,7 +139,7 @@ module postgres 'modules/postgres.bicep' = {
   params: {
     location: location
     serverName: 'psql-${resourceToken}'
-    administratorPassword: postgresAdminPassword
+    administratorPassword: effectivePostgresAdminPassword
     entraAdminObjectId: postgresEntraAdminObjectId
     entraAdminPrincipalName: postgresEntraAdminPrincipalName
     entraAdminPrincipalType: postgresEntraAdminPrincipalType
@@ -247,7 +258,7 @@ module pgPasswordSecret 'modules/kv-secret.bicep' = {
   params: {
     keyVaultName: keyVault.outputs.keyVaultName
     secretName: 'postgres-admin-password'
-    secretValue: postgresAdminPassword
+    secretValue: effectivePostgresAdminPassword
   }
 }
 
@@ -261,6 +272,7 @@ output POSTGRES_FQDN string = postgres.outputs.serverFqdn
 output POSTGRES_DATABASE string = postgres.outputs.databaseName
 output APP_CONFIG_ENDPOINT string = appConfig.outputs.appConfigEndpoint
 output KEY_VAULT_URI string = keyVault.outputs.keyVaultUri
+output POSTGRES_ADMIN_SECRET_NAME string = pgPasswordSecret.outputs.secretName
 output AI_FOUNDRY_ENDPOINT string = ai.outputs.endpoint
 output OPENAI_ENDPOINT string = ai.outputs.openAiEndpoint
 output DOCUMENT_INTELLIGENCE_ENDPOINT string = ai.outputs.documentIntelligenceEndpoint
