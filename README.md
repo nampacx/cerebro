@@ -33,6 +33,7 @@ flowchart LR
 |---|---|
 | `infra/` | Bicep (azd-compatible): VNet, private endpoints, PostgreSQL, Foundry + Cosmos DB thread storage, Function App, Static Web App, Key Vault, App Configuration, monitoring |
 | `db/schema.sql` | pgvector schema, tables and row-level security policies |
+| `scripts/setup-app-registration.ps1` | Creates/updates the Entra ID app registration (API scope, groups claim, redirect URIs, client secret) |
 | `scripts/setup-database.ps1` | Creates the managed-identity DB role and applies the schema |
 | `src/RagApp.Functions/` | Function app: upload, async ingestion (blob trigger), chat agent, conversations, A2A endpoints |
 | `src/web/` | React + Vite example client hosted on Azure Static Web Apps |
@@ -86,20 +87,35 @@ The SPA polls `/api/documents` while any document is `pending` or `processing`.
 ### 1. Prerequisites
 
 - Azure subscription; [azd](https://aka.ms/azd), Azure CLI, .NET 10 SDK, `psql`
-- An **Entra ID app registration** for the API:
+- An **Entra ID app registration** for the API. Create it with the script (recommended):
+
+  ```powershell
+  ./scripts/setup-app-registration.ps1 -DisplayName rag-app -ApplyToAzdEnv
+  ```
+
+  It creates/updates the registration, exposes the `access_as_user` scope, enables the `groups` claim on tokens, adds the SPA + Static Web Apps redirect URIs, issues the client secret, and writes `AUTH_CLIENT_ID` / `AUTH_CLIENT_SECRET` into the azd environment. Re-run it after `azd up` with `-StaticWebAppHostname <swa-host>` to register the deployed Static Web App origin.
+
+  <details>
+  <summary>Equivalent manual steps</summary>
+
   - Expose an API → scope `access_as_user`; Application ID URI `api://<client-id>`
   - Token configuration → add the **groups** claim to access tokens
   - Add a **Single-page application** redirect URI for the Static Web App origin (`https://<swa-hostname>`) and `http://localhost:5173` for local development
+  - Add a **Web** redirect URI `https://<swa-hostname>/.auth/login/aad/callback` for the Static Web Apps auth provider
   - Create a **client secret** for the Static Web Apps auth provider
   - Note the client id → `AUTH_CLIENT_ID`
+  </details>
 - Node.js 20+ for the web client
 
 ### 2. Provision + deploy
 
 ```bash
 azd init          # pick an environment name
+
+# Skip the next two lines if you ran setup-app-registration.ps1 with -ApplyToAzdEnv
 azd env set AUTH_CLIENT_ID <app-registration-client-id>
 azd env set AUTH_CLIENT_SECRET '<app-registration-client-secret>'   # used by Static Web Apps auth
+
 azd env set POSTGRES_ENTRA_ADMIN_OBJECT_ID $(az ad signed-in-user show --query id -o tsv)
 azd env set POSTGRES_ENTRA_ADMIN_PRINCIPAL_NAME $(az ad signed-in-user show --query userPrincipalName -o tsv)
 azd env set POSTGRES_ADMIN_PASSWORD '<strong-password>'      # stored in Key Vault
@@ -108,6 +124,13 @@ azd up
 ```
 
 Default location is **`swedencentral`** (PostgreSQL Flexible Server capacity is constrained in many other regions); override with `azd env set AZURE_LOCATION <region>`.
+
+Once the Static Web App exists, add its origin to the registration and redeploy the client so `config.json` picks up the final values:
+
+```powershell
+./scripts/setup-app-registration.ps1 -DisplayName rag-app -StaticWebAppHostname (azd env get-value STATIC_WEB_APP_URL) -SkipSecret
+azd deploy web
+```
 
 ### 3. Initialize the database
 
