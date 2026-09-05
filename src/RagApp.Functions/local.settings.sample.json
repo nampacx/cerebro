@@ -1,0 +1,24 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "AppConfig__Endpoint": "",
+    "Auth__TenantId": "<your-tenant-id>",
+    "Auth__ClientId": "<your-app-registration-client-id>",
+    "Rag__OpenAiEndpoint": "https://<your-foundry-account>.openai.azure.com/",
+    "Rag__DocumentIntelligenceEndpoint": "https://<your-foundry-account>.cognitiveservices.azure.com/",
+    "Rag__ChatDeployment": "gpt-5",
+    "Rag__EmbeddingDeployment": "text-embedding-3-large",
+    "Rag__EmbeddingDimensions": "1536",
+    "Rag__PostgresHost": "<server>.postgres.database.azure.com",
+    "Rag__PostgresDatabase": "ragdb",
+    "Rag__PostgresUser": "<your-entra-upn-or-role>",
+    "Rag__BlobEndpoint": "https://<storage-account>.blob.core.windows.net/",
+    "Rag__TableEndpoint": "https://<storage-account>.table.core.windows.net/",
+    "Rag__ConversationsTable": "conversations",
+    "Rag__DocumentsContainer": "documents",
+    "Rag__ChunkSizeTokens": "512",
+    "Rag__ChunkOverlapTokens": "64"
+  }
+}

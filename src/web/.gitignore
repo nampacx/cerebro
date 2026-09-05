@@ -1,0 +1,7 @@
+node_modules/
+dist/
+public/config.json
+public/staticwebapp.config.json
+.env
+.env.local
+*.tsbuildinfo
