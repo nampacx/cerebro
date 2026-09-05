@@ -37,6 +37,9 @@
     },
     "searchSku": {
       "value": "${SEARCH_SKU=basic}"
+    },
+    "appConfigPublicNetworkAccess": {
+      "value": "${APP_CONFIG_PUBLIC_NETWORK_ACCESS=Enabled}"
     }
   }
 }

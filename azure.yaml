@@ -12,3 +12,17 @@ services:
     language: js
     host: staticwebapp
     dist: dist
+hooks:
+  # ARM writes App Configuration key-values over the *data* plane, which it cannot reach
+  # through a private endpoint unless the deployment itself runs inside the VNet. The store
+  # is therefore provisioned with public network access on (local auth stays disabled, so
+  # Entra RBAC is still enforced) and closed again here once the key-values are written.
+  postprovision:
+    windows:
+      shell: pwsh
+      continueOnError: false
+      run: ./scripts/lock-appconfig-network.ps1
+    posix:
+      shell: sh
+      continueOnError: false
+      run: ./scripts/lock-appconfig-network.sh

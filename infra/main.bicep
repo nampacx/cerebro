@@ -198,13 +198,17 @@ module ai 'modules/ai.bicep' = {
   }
 }
 
+@description('Public network access for the App Configuration store *during provisioning*. ARM writes key-values over the data plane, which it cannot reach through a private endpoint unless the deployment runs inside the VNet, so this defaults to Enabled and the azd postprovision hook closes it again. Local auth stays disabled, so Entra RBAC is enforced the whole time.')
+@allowed(['Enabled', 'Disabled'])
+param appConfigPublicNetworkAccess string = 'Enabled'
+
 module appConfig 'modules/appconfig.bicep' = {
   name: 'appconfig'
   scope: rg
   params: {
     location: location
     appConfigName: 'appcs-${resourceToken}'
-    publicNetworkAccess: publicNetworkAccess
+    publicNetworkAccess: appConfigPublicNetworkAccess
     privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
     appConfigDnsZoneId: network.outputs.appConfigDnsZoneId
     deployerPrincipalId: postgresEntraAdminObjectId
@@ -313,6 +317,7 @@ output POSTGRES_SERVER_NAME string = postgres.outputs.serverName
 output POSTGRES_FQDN string = postgres.outputs.serverFqdn
 output POSTGRES_DATABASE string = postgres.outputs.databaseName
 output APP_CONFIG_ENDPOINT string = appConfig.outputs.appConfigEndpoint
+output APP_CONFIG_NAME string = appConfig.outputs.appConfigName
 output KEY_VAULT_URI string = keyVault.outputs.keyVaultUri
 output POSTGRES_ADMIN_SECRET_NAME string = pgPasswordSecret.outputs.secretName
 output AI_FOUNDRY_ENDPOINT string = ai.outputs.endpoint
