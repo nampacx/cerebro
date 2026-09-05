@@ -200,7 +200,7 @@ npm run dev
 
 `/.auth/me` only exists when the app runs on Static Web Apps; locally use the SWA CLI (`swa start`) or sign in through the MSAL popup.
 
-> **Windows note:** the Functions build emits deeply nested paths under `obj/.../WorkerExtensions/...`. If the repository path is long you may hit `MSB3030` (`MAX_PATH`); build from a shorter path (e.g. a directory junction) or enable Win32 long paths.
+> **Windows note:** the Functions worker SDK generates a nested `WorkerExtensions` project whose own build output adds roughly 120 characters to the path. On a deep checkout this used to exceed `MAX_PATH` and fail with `MSB3030` (`Could not copy ... because it was not found`). `RagApp.Functions.csproj` now redirects that generated project to `%LOCALAPPDATA%\FuncWorkerExt\<project>\<configuration>` whenever the project directory is longer than 60 characters, so the build works from any path. Enabling Win32 long paths is still worthwhile for other tooling.
 
 ## Security notes
 
