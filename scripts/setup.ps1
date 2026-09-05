@@ -95,10 +95,18 @@ try {
 
     # ---- 3. App registration ------------------------------------------------
     Write-Step "Configuring Entra ID app registration '$AppRegistrationDisplayName'"
-    & "$scriptRoot/setup-app-registration.ps1" `
-        -DisplayName $AppRegistrationDisplayName `
-        -LocalDevOrigin $LocalDevOrigin `
-        -ApplyToAzdEnv
+    # On a re-run the Static Web App already exists, so pass its hostname straight
+    # away instead of waiting for the post-deployment pass.
+    $knownSwaUrl = azd env get-value STATIC_WEB_APP_URL 2>$null
+    if ($LASTEXITCODE -ne 0) { $knownSwaUrl = $null }
+
+    $appRegArgs = @{
+        DisplayName    = $AppRegistrationDisplayName
+        LocalDevOrigin = $LocalDevOrigin
+        ApplyToAzdEnv  = $true
+    }
+    if ($knownSwaUrl) { $appRegArgs.StaticWebAppHostname = $knownSwaUrl }
+    & "$scriptRoot/setup-app-registration.ps1" @appRegArgs
 
     # ---- 4. Remaining azd settings -----------------------------------------
     Write-Step 'Writing azd environment settings'

@@ -1,10 +1,22 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <AzureFunctionsVersion>v4</AzureFunctionsVersion>
     <OutputType>Exe</OutputType>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <UserSecretsId>cbfe9724-5608-4658-ba4f-fc35ddaed9cf</UserSecretsId>
+  </PropertyGroup>
+  <!--
+    The Functions worker SDK generates a nested WorkerExtensions project under obj/, and
+    that project's own build output adds roughly 120 more characters
+    (bin/Release/net8.0/runtimes/win/lib/netstandard2.0/<assembly>.dll). On Windows without
+    long-path support this pushes the total past MAX_PATH and the build fails with MSB3030
+    ("could not copy ... because it was not found"). Relocate the generated project to a
+    short path when the project directory is deep enough for that to be a risk.
+  -->
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT' And '$(ExtensionsCsProjDirectory)' == '' And $(MSBuildProjectDirectory.Length) &gt; 60">
+    <ExtensionsCsProjDirectory>$([System.IO.Path]::Combine($(LOCALAPPDATA), 'FuncWorkerExt', $(MSBuildProjectName), $(Configuration)))</ExtensionsCsProjDirectory>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

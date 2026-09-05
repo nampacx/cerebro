@@ -10,7 +10,7 @@ Retrieval-augmented generation platform with **per-user row-level security**:
 - **Azure Static Web App** (React + Vite) example client with document upload, status tracking and a chat UI with conversation history
 - **Entra ID authorization** end to end; the caller's `oid`/`groups` claims drive RLS on retrieval
 - **A2A**: agent card + JSON-RPC endpoint, including the **on-behalf-of (OBO)** flow so partner agents act as the end user
-- **Enterprise networking**: VNet integration, private endpoints + private DNS for PostgreSQL, Blob/Table/Queue, Cosmos DB, Key Vault, App Configuration and Foundry; managed identity everywhere; Key Vault for secrets; App Configuration for app settings
+- **Enterprise networking**: VNet integration, private endpoints + private DNS for PostgreSQL, Blob/Table/Queue, Cosmos DB, Key Vault, App Configuration, Azure AI Search and Foundry; managed identity everywhere; Key Vault for secrets; App Configuration for app settings
 
 ```mermaid
 flowchart LR
@@ -23,6 +23,7 @@ flowchart LR
   FN --> TBL[(Azure Table<br/>conversation index)]
   FN --> AI[Foundry<br/>GPT-5 + embeddings +<br/>Document Intelligence +<br/>conversations]
   AI --> COSMOS[(Cosmos DB<br/>thread storage)]
+  AI --> SRCH[(Azure AI Search<br/>agent vector store<br/>required by capability host)]
   FN --> KV[Key Vault]
   FN --> CFG[App Configuration]
 ```
@@ -31,11 +32,12 @@ flowchart LR
 
 | Path | Purpose |
 |---|---|
-| `infra/` | Bicep (azd-compatible): VNet, private endpoints, PostgreSQL, Foundry + Cosmos DB thread storage, Function App, Static Web App, Key Vault, App Configuration, monitoring |
+| `infra/` | Bicep (azd-compatible): VNet, private endpoints, PostgreSQL, Foundry + Cosmos DB thread storage + Azure AI Search, Function App, Static Web App, Key Vault, App Configuration, monitoring |
 | `db/schema.sql` | pgvector schema, tables and row-level security policies |
 | `scripts/setup.ps1` | **One-shot setup**: prerequisites, azd environment, app registration, `azd up`, post-deployment redirect URIs and (optionally) the database |
 | `scripts/setup-app-registration.ps1` | Creates/updates the Entra ID app registration (API scope, groups claim, redirect URIs, client secret) |
 | `scripts/setup-database.ps1` | Creates the managed-identity DB role and applies the schema |
+| `scripts/teardown.ps1` | **One-shot teardown**: `azd down --force --purge` plus the app registration and stale azd values that `azd down` leaves behind |
 | `src/RagApp.Functions/` | Function app: upload, async ingestion (blob trigger), chat agent, conversations, A2A endpoints |
 | `src/web/` | React + Vite example client hosted on Azure Static Web Apps |
 
@@ -65,9 +67,10 @@ The SPA polls `/api/documents` while any document is `pending` or `processing`.
 
 ## Chat history
 
-- History lives in **Microsoft Foundry conversations** (`/openai/v1/conversations`), persisted in the **customer-managed Cosmos DB** account attached to the Foundry project through a `CosmosDB` connection plus an `Agents` capability host (`threadStorageConnections` + `storageConnections`; no Azure AI Search is needed because retrieval is served by pgvector).
+- History lives in **Microsoft Foundry conversations** (`/openai/v1/conversations`), persisted in the **customer-managed Cosmos DB** account attached to the Foundry project through a `CosmosDB` connection plus an `Agents` capability host.
+- The capability host's connection set is **atomic**: `threadStorageConnections` (Cosmos DB), `storageConnections` (Blob Storage) and `vectorStoreConnections` (**Azure AI Search**) must all be supplied together, or the control plane rejects the configuration with `Invalid connections configuration received. All connections must be provided, else omitted.` That is why an Azure AI Search service is deployed even though document retrieval is served entirely by **pgvector** — the Search instance only backs the agent runtime's own vector store and stays idle in this solution. It defaults to the cheapest usable tier; override with `azd env set SEARCH_SKU standard`.
 - An **Azure Table** (`conversations`, `PartitionKey` = user object id) indexes each user's conversation ids and is the authorization boundary: a conversation can only be read, continued or deleted from the owner's partition.
-- If the capability-host configuration is rejected in your region, set `azd env set USE_CUSTOM_FOUNDRY_STORAGE false` to fall back to Microsoft-managed thread storage.
+- If you would rather not pay for Azure AI Search, set `azd env set USE_CUSTOM_FOUNDRY_STORAGE false` to fall back to Microsoft-managed thread storage; the Cosmos DB, Storage and Search connections and the capability hosts are then skipped entirely.
 
 ## Web application
 
@@ -148,6 +151,18 @@ This creates the function app's managed-identity role (`pgaadauth_create_princip
 
 > The embedding dimension in `db/schema.sql` (`vector(1536)`) must match `Rag:EmbeddingDimensions` in App Configuration (1536 fits `text-embedding-3-large` when truncated, or use 3072 and update both).
 
+### 4. Tear down
+
+```powershell
+./scripts/teardown.ps1 -EnvironmentName rag-dev -DeleteAppRegistration
+```
+
+Resource names are derived from `uniqueString(subscription().id, environmentName)`, so redeploying under the same environment name reuses the same names. Key Vault and the Foundry account are only *soft*-deleted, and their tombstones then collide with the new deployment (`a resource with this name already exists or is in a conflicting state`). The script therefore runs `azd down --force --purge`, which purges them so the names are immediately reusable.
+
+It also cleans up the two things `azd down` cannot: the Entra ID app registration (it lives in the directory, not the resource group; pass `-DeleteAppRegistration`) and the azd environment values that still point at deleted resources. Add `-DeleteAzdEnvironment` to remove the local environment entirely, or `-WhatIf` to see what would happen first.
+
+Plain `azd down --force --purge` works too if you only care about the Azure resources.
+
 ## Agent-to-agent (A2A) with on-behalf-of
 
 Partner agents discover this agent via `GET /.well-known/agent-card.json`. The card advertises an OAuth2 security scheme: callers must present a token **for the end user**, so RLS applies to that user — never to the calling app.
@@ -200,14 +215,15 @@ npm run dev
 
 `/.auth/me` only exists when the app runs on Static Web Apps; locally use the SWA CLI (`swa start`) or sign in through the MSAL popup.
 
-> **Windows note:** the Functions build emits deeply nested paths under `obj/.../WorkerExtensions/...`. If the repository path is long you may hit `MSB3030` (`MAX_PATH`); build from a shorter path (e.g. a directory junction) or enable Win32 long paths.
+> **Windows note:** the Functions worker SDK generates a nested `WorkerExtensions` project whose own build output adds roughly 120 characters to the path. On a deep checkout this used to exceed `MAX_PATH` and fail with `MSB3030` (`Could not copy ... because it was not found`). `RagApp.Functions.csproj` now redirects that generated project to `%LOCALAPPDATA%\FuncWorkerExt\<project>\<configuration>` whenever the project directory is longer than 60 characters, so the build works from any path. Enabling Win32 long paths is still worthwhile for other tooling.
 
 ## Security notes
 
 - All data-plane access uses the function app's **system-assigned managed identity** (Blob Data Owner, Queue/Table Data Contributor for the blob trigger and conversation index, Cognitive Services OpenAI User, Cognitive Services User, Key Vault Secrets User, App Configuration Data Reader; Entra-native PostgreSQL role).
-- The Foundry project identity gets Cosmos DB Operator + built-in Cosmos data contributor and Storage Blob Data Contributor so agent conversations persist to your own accounts; Cosmos local auth is disabled.
+- The Foundry project identity gets Cosmos DB Operator + built-in Cosmos data contributor, Storage Blob Data Contributor, and Search Index Data Contributor + Search Service Contributor so agent conversations persist to your own accounts; Cosmos and Azure AI Search local auth are disabled and both are reached over Entra only.
 - Conversation ownership is enforced by the Azure Table index, so Foundry conversation ids are never usable across users (including through the A2A `contextId`).
 - `disableLocalAuth` is set on Foundry and App Configuration; storage blob public access is off.
 - Easy Auth (`authsettingsV2`) rejects unauthenticated requests at the platform edge when `AUTH_CLIENT_ID` is set; the code additionally validates the JWT and extracts `oid`/`groups` for RLS.
-- With `PUBLIC_NETWORK_ACCESS=Disabled`, all backing services are reachable only through private endpoints inside the VNet.
+- With `PUBLIC_NETWORK_ACCESS=Disabled`, the *backing* services (PostgreSQL, Storage, Cosmos DB, Key Vault, App Configuration, Azure AI Search and Foundry) are reachable only through private endpoints inside the VNet, and the function app reaches them over VNet integration. The function app's own front end stays internet-facing by design: the SPA calls it from the browser, and it is protected by Easy Auth plus code-level JWT validation rather than by network isolation. The Static Web App is likewise public.
+- **App Configuration is the one exception during provisioning.** ARM writes its key-values over the *data* plane, which it cannot reach through a private endpoint unless the deployment itself runs inside the VNet. The store is therefore created with `dataPlaneProxy.authenticationMode: Pass-through`, opened by the azd `preprovision` hook (`scripts/unlock-appconfig-network.*`) and closed again by the `postprovision` hook (`scripts/lock-appconfig-network.*`) once the key-values are written. Opening it in a separate step rather than in the template itself is deliberate: a network rule change made during the deployment takes up to a minute to reach the data plane, so same-deployment writes fail intermittently with `Forbidden`. `disableLocalAuth` stays `true` throughout, so the store never accepts anything but Entra credentials, and the deploying principal is granted App Configuration Data Owner so the pass-through writes succeed. If the hook is interrupted, re-run `azd provision` or close the window manually with `az appconfig update --name <store> --resource-group <rg> --enable-public-network false`.
 - The PostgreSQL local admin password is **generated during deployment** from a per-deployment GUID (`newGuid()`), never handled by a human or written to the azd environment, and stored in Key Vault as `postgres-admin-password`. It exists only for break-glass access — the application authenticates with Entra. Because it is regenerated on each `azd up`, pin it with `azd env set POSTGRES_ADMIN_PASSWORD '<value>'` if you need a stable value.

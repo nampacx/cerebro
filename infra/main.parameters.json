@@ -34,6 +34,12 @@
     },
     "staticWebAppLocation": {
       "value": "${STATIC_WEB_APP_LOCATION=westeurope}"
+    },
+    "searchSku": {
+      "value": "${SEARCH_SKU=basic}"
+    },
+    "appConfigPublicNetworkAccess": {
+      "value": "${APP_CONFIG_PUBLIC_NETWORK_ACCESS=Enabled}"
     }
   }
 }

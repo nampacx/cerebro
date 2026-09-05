@@ -7,6 +7,8 @@ param appConfigId string
 @description('Foundry project system-assigned identity; needs data access to the BYO Cosmos DB and Storage accounts.')
 param foundryProjectPrincipalId string = ''
 param cosmosAccountId string = ''
+@description('Resource id of the Azure AI Search service backing the Foundry agent vector store.')
+param searchServiceId string = ''
 
 var roles = {
   storageBlobDataOwner: 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
@@ -18,6 +20,8 @@ var roles = {
   keyVaultSecretsUser: '4633458b-17de-408a-b874-0445c86b69e6'
   appConfigurationDataReader: '516239f1-63e1-4d78-a4de-a74fb236a071'
   cosmosDbOperator: '230815da-be43-4aae-9cb4-875f7bd000aa'
+  searchIndexDataContributor: '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
+  searchServiceContributor: '7ca78c08-252a-4471-8644-bb5ff32d4ba0'
 }
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
@@ -145,5 +149,35 @@ resource foundryCosmosDataRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAss
     principalId: foundryProjectPrincipalId
     roleDefinitionId: '${cosmosAccountId}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002'
     scope: cosmosAccountId
+  }
+}
+
+// ---- Foundry project identity access to the agent vector store (AI Search) ----
+
+var enableFoundrySearchRoles = !empty(foundryProjectPrincipalId) && !empty(searchServiceId)
+
+resource searchService 'Microsoft.Search/searchServices@2024-06-01-preview' existing = if (enableFoundrySearchRoles) {
+  name: enableFoundrySearchRoles ? last(split(searchServiceId, '/')) : 'placeholder'
+}
+
+// Index data plane: the agent runtime reads and writes its own vector indexes.
+resource foundrySearchIndexDataRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableFoundrySearchRoles) {
+  name: guid(searchServiceId, foundryProjectPrincipalId, roles.searchIndexDataContributor)
+  scope: searchService
+  properties: {
+    principalId: foundryProjectPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.searchIndexDataContributor)
+  }
+}
+
+// Control plane: the agent runtime creates and deletes the indexes themselves.
+resource foundrySearchServiceRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableFoundrySearchRoles) {
+  name: guid(searchServiceId, foundryProjectPrincipalId, roles.searchServiceContributor)
+  scope: searchService
+  properties: {
+    principalId: foundryProjectPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.searchServiceContributor)
   }
 }
