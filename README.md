@@ -150,6 +150,18 @@ This creates the function app's managed-identity role (`pgaadauth_create_princip
 
 > The embedding dimension in `db/schema.sql` (`vector(1536)`) must match `Rag:EmbeddingDimensions` in App Configuration (1536 fits `text-embedding-3-large` when truncated, or use 3072 and update both).
 
+### 4. Tear down
+
+```powershell
+./scripts/teardown.ps1 -EnvironmentName rag-dev -DeleteAppRegistration
+```
+
+Resource names are derived from `uniqueString(subscription().id, environmentName)`, so redeploying under the same environment name reuses the same names. Key Vault and the Foundry account are only *soft*-deleted, and their tombstones then collide with the new deployment (`a resource with this name already exists or is in a conflicting state`). The script therefore runs `azd down --force --purge`, which purges them so the names are immediately reusable.
+
+It also cleans up the two things `azd down` cannot: the Entra ID app registration (it lives in the directory, not the resource group; pass `-DeleteAppRegistration`) and the azd environment values that still point at deleted resources. Add `-DeleteAzdEnvironment` to remove the local environment entirely, or `-WhatIf` to see what would happen first.
+
+Plain `azd down --force --purge` works too if you only care about the Azure resources.
+
 ## Agent-to-agent (A2A) with on-behalf-of
 
 Partner agents discover this agent via `GET /.well-known/agent-card.json`. The card advertises an OAuth2 security scheme: callers must present a token **for the end user**, so RLS applies to that user — never to the calling app.
