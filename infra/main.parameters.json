@@ -22,6 +22,15 @@
     },
     "publicNetworkAccess": {
       "value": "${PUBLIC_NETWORK_ACCESS=Disabled}"
+    },
+    "authClientSecret": {
+      "value": "${AUTH_CLIENT_SECRET=}"
+    },
+    "useCustomFoundryStorage": {
+      "value": "${USE_CUSTOM_FOUNDRY_STORAGE=true}"
+    },
+    "staticWebAppLocation": {
+      "value": "${STATIC_WEB_APP_LOCATION=westeurope}"
     }
   }
 }

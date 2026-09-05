@@ -11,6 +11,9 @@ var privateDnsZoneNames = [
   'privatelink.cognitiveservices.azure.com'
   'privatelink.openai.azure.com'
   'privatelink.services.ai.azure.com'
+  'privatelink.table.${environment().suffixes.storage}'
+  'privatelink.queue.${environment().suffixes.storage}'
+  'privatelink.documents.azure.com'
 ]
 
 resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
@@ -79,3 +82,6 @@ output appConfigDnsZoneId string = privateDnsZones[3].id
 output cognitiveServicesDnsZoneId string = privateDnsZones[4].id
 output openAiDnsZoneId string = privateDnsZones[5].id
 output aiServicesDnsZoneId string = privateDnsZones[6].id
+output tableDnsZoneId string = privateDnsZones[7].id
+output queueDnsZoneId string = privateDnsZones[8].id
+output cosmosDnsZoneId string = privateDnsZones[9].id

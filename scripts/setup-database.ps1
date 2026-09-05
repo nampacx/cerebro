@@ -31,7 +31,7 @@ psql "host=$hostName dbname=$Database user=$AdminUser sslmode=require" -v ON_ERR
 Write-Host "Granting application permissions ..."
 psql "host=$hostName dbname=$Database user=$AdminUser sslmode=require" -v ON_ERROR_STOP=1 -c @"
 GRANT USAGE ON SCHEMA public TO "$FunctionAppName";
-GRANT SELECT, INSERT, DELETE ON documents, document_acl, chunks TO "$FunctionAppName";
+GRANT SELECT, INSERT, UPDATE, DELETE ON documents, document_acl, chunks TO "$FunctionAppName";
 "@
 
 Write-Host "Done."

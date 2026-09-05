@@ -42,7 +42,13 @@ public class RagAgentService
         _options = options.Value;
     }
 
-    public async Task<ChatResponse> AskAsync(UserContext user, string message, int topK = 5, CancellationToken ct = default)
+    public async Task<ChatResponse> AskAsync(
+        UserContext user,
+        string message,
+        int topK = 5,
+        IReadOnlyList<ConversationMessage>? history = null,
+        string conversationId = "",
+        CancellationToken ct = default)
     {
         var citations = new List<CitationResult>();
 
@@ -83,13 +89,27 @@ public class RagAgentService
                 instructions: Instructions,
                 tools: [AIFunctionFactory.Create(SearchDocuments, name: "search_documents")]);
 
-        var response = await agent.RunAsync(message, cancellationToken: ct);
+        // Replay persisted history (from Foundry conversations) so the model has the
+        // full context of the resumed session, then append the new user turn.
+        var messages = new List<ChatMessage>();
+        if (history is { Count: > 0 })
+        {
+            messages.AddRange(history.Select(m => new ChatMessage(
+                m.Role.Equals("assistant", StringComparison.OrdinalIgnoreCase)
+                    ? ChatRole.Assistant
+                    : ChatRole.User,
+                m.Text)));
+        }
+
+        messages.Add(new ChatMessage(ChatRole.User, message));
+
+        var response = await agent.RunAsync(messages, cancellationToken: ct);
 
         var distinctCitations = citations
             .GroupBy(c => (c.DocumentId, c.Page, c.ChunkIndex))
             .Select(g => g.First())
             .ToList();
 
-        return new ChatResponse(response.Text, distinctCitations);
+        return new ChatResponse(response.Text, distinctCitations, conversationId);
     }
 }

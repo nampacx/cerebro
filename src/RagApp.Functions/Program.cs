@@ -1,6 +1,7 @@
 using Azure.AI.DocumentIntelligence;
 using Azure.AI.OpenAI;
 using Azure.Core;
+using Azure.Data.Tables;
 using Azure.Identity;
 using Azure.Storage.Blobs;
 using Microsoft.Azure.Functions.Worker;
@@ -49,13 +50,23 @@ builder.Services.AddSingleton(sp =>
     var options = sp.GetRequiredService<IOptions<RagOptions>>().Value;
     return new BlobServiceClient(new Uri(options.BlobEndpoint), credential);
 });
+builder.Services.AddSingleton(sp =>
+{
+    var options = sp.GetRequiredService<IOptions<RagOptions>>().Value;
+    return new TableServiceClient(new Uri(options.TableEndpoint), credential);
+});
+
+builder.Services.AddHttpClient<FoundryConversationService>();
 
 builder.Services.AddSingleton<ITokenValidator, EntraTokenValidator>();
 builder.Services.AddSingleton<PgVectorStore>();
 builder.Services.AddSingleton<ChunkingService>();
 builder.Services.AddSingleton<EmbeddingService>();
-builder.Services.AddSingleton<DocumentIngestionService>();
+builder.Services.AddSingleton<DocumentUploadService>();
+builder.Services.AddSingleton<DocumentProcessingService>();
+builder.Services.AddSingleton<ConversationIndex>();
 builder.Services.AddSingleton<RagAgentService>();
+builder.Services.AddSingleton<ChatOrchestrator>();
 
 builder.Services
     .AddApplicationInsightsTelemetryWorkerService()

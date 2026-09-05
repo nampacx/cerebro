@@ -7,3 +7,8 @@ services:
     project: ./src/RagApp.Functions
     language: dotnet
     host: function
+  web:
+    project: ./src/web
+    language: js
+    host: staticwebapp
+    dist: dist

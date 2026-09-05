@@ -11,6 +11,8 @@ param keyVaultUri string
 @description('Entra app registration (client) ID used for Easy Auth and token validation. Leave empty to skip Easy Auth configuration.')
 param authClientId string = ''
 param additionalAppSettings object = {}
+@description('Origins allowed to call the Function App (the Static Web App hostname).')
+param allowedCorsOrigins array = []
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
   name: storageAccountName
@@ -72,6 +74,10 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
       use32BitWorkerProcess: false
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
+      cors: {
+        allowedOrigins: allowedCorsOrigins
+        supportCredentials: false
+      }
       appSettings: concat(baseAppSettings, additionalSettingsArray)
     }
   }

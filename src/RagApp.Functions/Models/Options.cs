@@ -14,6 +14,8 @@ public class RagOptions
     /// <summary>Postgres role name; defaults to the function app name (managed identity principal).</summary>
     public string? PostgresUser { get; set; }
     public string BlobEndpoint { get; set; } = string.Empty;
+    public string TableEndpoint { get; set; } = string.Empty;
+    public string ConversationsTable { get; set; } = "conversations";
     public string DocumentsContainer { get; set; } = "documents";
     public int ChunkSizeTokens { get; set; } = 512;
     public int ChunkOverlapTokens { get; set; } = 64;

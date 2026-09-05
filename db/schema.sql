@@ -21,7 +21,13 @@ CREATE TABLE IF NOT EXISTS documents (
     filename    text        NOT NULL,
     blob_url    text        NOT NULL,
     content_type text,
-    created_at  timestamptz NOT NULL DEFAULT now()
+    -- Async ingestion state, updated by the blob-trigger processor.
+    status        text        NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+    error_message text,
+    chunk_count   int         NOT NULL DEFAULT 0,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
 -- Optional sharing: a document is visible to members of these Entra groups.
@@ -85,6 +91,13 @@ DROP POLICY IF EXISTS documents_delete ON documents;
 CREATE POLICY documents_delete ON documents FOR DELETE
     USING (owner_oid = app_current_user_oid());
 
+-- The blob-trigger processor updates ingestion status while running under the
+-- document owner's identity (recovered from blob metadata), so RLS still applies.
+DROP POLICY IF EXISTS documents_update ON documents;
+CREATE POLICY documents_update ON documents FOR UPDATE
+    USING (owner_oid = app_current_user_oid())
+    WITH CHECK (owner_oid = app_current_user_oid());
+
 -- ACL entries: only the owner manages sharing; visible rows follow the document.
 DROP POLICY IF EXISTS document_acl_all ON document_acl;
 CREATE POLICY document_acl_all ON document_acl FOR ALL
@@ -136,4 +149,4 @@ CREATE POLICY chunks_delete ON chunks FOR DELETE
 -- the function app's managed identity name). Replace :app_role when running manually.
 -- ---------------------------------------------------------------------------
 -- GRANT USAGE ON SCHEMA public TO "<function-app-name>";
--- GRANT SELECT, INSERT, DELETE ON documents, document_acl, chunks TO "<function-app-name>";
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON documents, document_acl, chunks TO "<function-app-name>";

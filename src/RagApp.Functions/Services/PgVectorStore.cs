@@ -55,13 +55,12 @@ public class PgVectorStore : IAsyncDisposable
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    public async Task<Guid> InsertDocumentAsync(
+    public async Task<Guid> CreatePendingDocumentAsync(
         UserContext user,
         string filename,
         string blobUrl,
         string? contentType,
         IReadOnlyList<string> shareWithGroupIds,
-        IReadOnlyList<ChunkRecord> chunks,
         CancellationToken ct = default)
     {
         await using var conn = await _dataSource.OpenConnectionAsync(ct);
@@ -71,8 +70,8 @@ public class PgVectorStore : IAsyncDisposable
         Guid documentId;
         await using (var cmd = new NpgsqlCommand(
             """
-            INSERT INTO documents (owner_oid, filename, blob_url, content_type)
-            VALUES (@owner, @filename, @blobUrl, @contentType)
+            INSERT INTO documents (owner_oid, filename, blob_url, content_type, status)
+            VALUES (@owner, @filename, @blobUrl, @contentType, 'pending')
             RETURNING id
             """, conn, tx))
         {
@@ -92,6 +91,29 @@ public class PgVectorStore : IAsyncDisposable
             await aclCmd.ExecuteNonQueryAsync(ct);
         }
 
+        await tx.CommitAsync(ct);
+        return documentId;
+    }
+
+    /// <summary>Persists the chunks produced by the async processor and marks the document completed.</summary>
+    public async Task AddChunksAsync(
+        UserContext owner,
+        Guid documentId,
+        IReadOnlyList<ChunkRecord> chunks,
+        CancellationToken ct = default)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await SetUserContextAsync(conn, tx, owner, ct);
+
+        // Make reprocessing idempotent.
+        await using (var deleteCmd = new NpgsqlCommand(
+            "DELETE FROM chunks WHERE document_id = @doc", conn, tx))
+        {
+            deleteCmd.Parameters.AddWithValue("doc", documentId);
+            await deleteCmd.ExecuteNonQueryAsync(ct);
+        }
+
         foreach (var chunk in chunks)
         {
             await using var chunkCmd = new NpgsqlCommand(
@@ -107,8 +129,37 @@ public class PgVectorStore : IAsyncDisposable
             await chunkCmd.ExecuteNonQueryAsync(ct);
         }
 
+        await using (var statusCmd = new NpgsqlCommand(
+            """
+            UPDATE documents
+            SET status = 'completed', chunk_count = @count, error_message = NULL, updated_at = now()
+            WHERE id = @doc
+            """, conn, tx))
+        {
+            statusCmd.Parameters.AddWithValue("doc", documentId);
+            statusCmd.Parameters.AddWithValue("count", chunks.Count);
+            await statusCmd.ExecuteNonQueryAsync(ct);
+        }
+
         await tx.CommitAsync(ct);
-        return documentId;
+    }
+
+    public async Task UpdateStatusAsync(
+        UserContext owner, Guid documentId, string status, string? errorMessage = null, CancellationToken ct = default)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await SetUserContextAsync(conn, tx, owner, ct);
+
+        await using var cmd = new NpgsqlCommand(
+            "UPDATE documents SET status = @status, error_message = @error, updated_at = now() WHERE id = @doc",
+            conn, tx);
+        cmd.Parameters.AddWithValue("doc", documentId);
+        cmd.Parameters.AddWithValue("status", status);
+        cmd.Parameters.AddWithValue("error", (object?)errorMessage ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync(ct);
+
+        await tx.CommitAsync(ct);
     }
 
     public async Task<IReadOnlyList<SearchResult>> SearchAsync(
@@ -152,7 +203,11 @@ public class PgVectorStore : IAsyncDisposable
         await SetUserContextAsync(conn, tx, user, ct);
 
         await using var cmd = new NpgsqlCommand(
-            "SELECT id, filename, blob_url, created_at FROM documents ORDER BY created_at DESC", conn, tx);
+            """
+            SELECT id, filename, blob_url, status, error_message, chunk_count, created_at, updated_at
+            FROM documents
+            ORDER BY created_at DESC
+            """, conn, tx);
 
         var results = new List<DocumentInfo>();
         await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -162,7 +217,11 @@ public class PgVectorStore : IAsyncDisposable
                 reader.GetGuid(0),
                 reader.GetString(1),
                 reader.GetString(2),
-                reader.GetFieldValue<DateTimeOffset>(3)));
+                reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.GetInt32(5),
+                reader.GetFieldValue<DateTimeOffset>(6),
+                reader.GetFieldValue<DateTimeOffset>(7)));
         }
 
         return results;

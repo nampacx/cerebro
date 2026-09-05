@@ -10,12 +10,12 @@ namespace RagApp.Functions.Functions;
 public class ChatFunction
 {
     private readonly ITokenValidator _tokenValidator;
-    private readonly RagAgentService _agentService;
+    private readonly ChatOrchestrator _orchestrator;
 
-    public ChatFunction(ITokenValidator tokenValidator, RagAgentService agentService)
+    public ChatFunction(ITokenValidator tokenValidator, ChatOrchestrator orchestrator)
     {
         _tokenValidator = tokenValidator;
-        _agentService = agentService;
+        _orchestrator = orchestrator;
     }
 
     [Function("Chat")]
@@ -35,8 +35,15 @@ public class ChatFunction
             return new BadRequestObjectResult(new { error = "Request body must contain a 'message'." });
         }
 
-        var response = await _agentService.AskAsync(
-            user, chatRequest.Message, Math.Clamp(chatRequest.TopK, 1, 20), ct);
-        return new OkObjectResult(response);
+        try
+        {
+            var response = await _orchestrator.HandleAsync(
+                user, chatRequest.Message, Math.Clamp(chatRequest.TopK, 1, 20), chatRequest.ConversationId, ct);
+            return new OkObjectResult(response);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new NotFoundObjectResult(new { error = "Conversation not found." });
+        }
     }
 }

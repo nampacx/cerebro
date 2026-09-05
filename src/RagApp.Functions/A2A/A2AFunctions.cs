@@ -18,16 +18,16 @@ namespace RagApp.Functions.A2A;
 public class A2AFunctions
 {
     private readonly ITokenValidator _tokenValidator;
-    private readonly RagAgentService _agentService;
+    private readonly ChatOrchestrator _orchestrator;
     private readonly AuthOptions _authOptions;
 
     public A2AFunctions(
         ITokenValidator tokenValidator,
-        RagAgentService agentService,
+        ChatOrchestrator orchestrator,
         IOptions<AuthOptions> authOptions)
     {
         _tokenValidator = tokenValidator;
-        _agentService = agentService;
+        _orchestrator = orchestrator;
         _authOptions = authOptions.Value;
     }
 
@@ -151,12 +151,22 @@ public class A2AFunctions
             return RpcError(rpc.Id, -32602, "Invalid params: message must contain a text part.");
         }
 
-        var answer = await _agentService.AskAsync(user, text, ct: ct);
+        // Partner agents get a persisted conversation too, keyed by contextId when supplied.
+        ChatResponse answer;
+        try
+        {
+            answer = await _orchestrator.HandleAsync(
+                user, text, 5, sendParams!.Message.ContextId, ct);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return RpcError(rpc.Id, -32001, "The supplied contextId does not belong to the authenticated user.");
+        }
 
         var responseMessage = new A2AMessage
         {
             Role = "agent",
-            ContextId = sendParams!.Message.ContextId,
+            ContextId = answer.ConversationId,
             Parts = [new A2APart { Kind = "text", Text = answer.Answer }]
         };
 

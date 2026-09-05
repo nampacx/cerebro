@@ -15,6 +15,8 @@
     "Rag__PostgresDatabase": "ragdb",
     "Rag__PostgresUser": "<your-entra-upn-or-role>",
     "Rag__BlobEndpoint": "https://<storage-account>.blob.core.windows.net/",
+    "Rag__TableEndpoint": "https://<storage-account>.table.core.windows.net/",
+    "Rag__ConversationsTable": "conversations",
     "Rag__DocumentsContainer": "documents",
     "Rag__ChunkSizeTokens": "512",
     "Rag__ChunkOverlapTokens": "64"

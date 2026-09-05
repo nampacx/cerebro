@@ -38,8 +38,21 @@ param embeddingModelVersion string = '1'
 @description('Embedding vector dimensions; must match db/schema.sql vector(N).')
 param embeddingDimensions int = 1536
 
+@description('Attach customer-managed Cosmos DB + Storage to Foundry so agent conversations are stored in your own subscription. Set to "false" if the capability host API rejects the configuration in your region.')
+@allowed(['true', 'false'])
+param useCustomFoundryStorage string = 'true'
+
+@description('Region for the Static Web App. Static Web Apps is available in a limited set of regions; westeurope is the closest to swedencentral.')
+param staticWebAppLocation string = 'westeurope'
+
+@secure()
+@description('Client secret of the Entra app registration used by Static Web Apps built-in Entra authentication. Leave empty to configure it manually after deployment.')
+param authClientSecret string = ''
+
 var tags = { 'azd-env-name': environmentName }
 var resourceToken = toLower(uniqueString(subscription().id, environmentName))
+var functionAppName = 'func-${resourceToken}'
+var functionAppUrl = 'https://${functionAppName}.azurewebsites.net'
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: 'rg-${environmentName}'
@@ -77,6 +90,21 @@ module storage 'modules/storage.bicep' = {
     publicNetworkAccess: publicNetworkAccess
     privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
     blobDnsZoneId: network.outputs.blobDnsZoneId
+    tableDnsZoneId: network.outputs.tableDnsZoneId
+    queueDnsZoneId: network.outputs.queueDnsZoneId
+    tags: tags
+  }
+}
+
+module cosmos 'modules/cosmos.bicep' = {
+  name: 'cosmos'
+  scope: rg
+  params: {
+    location: location
+    accountName: 'cosmos-${resourceToken}'
+    publicNetworkAccess: publicNetworkAccess
+    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
+    cosmosDnsZoneId: network.outputs.cosmosDnsZoneId
     tags: tags
   }
 }
@@ -129,6 +157,9 @@ module ai 'modules/ai.bicep' = {
     embeddingModelDeploymentName: embeddingModelDeploymentName
     embeddingModelName: embeddingModelName
     embeddingModelVersion: embeddingModelVersion
+    useCustomFoundryStorage: useCustomFoundryStorage == 'true'
+    cosmosAccountId: cosmos.outputs.accountId
+    storageAccountId: storage.outputs.storageAccountId
     tags: tags
   }
 }
@@ -152,10 +183,25 @@ module appConfig 'modules/appconfig.bicep' = {
       { name: 'Rag:PostgresHost', value: postgres.outputs.serverFqdn }
       { name: 'Rag:PostgresDatabase', value: postgres.outputs.databaseName }
       { name: 'Rag:BlobEndpoint', value: storage.outputs.blobEndpoint }
+      { name: 'Rag:TableEndpoint', value: storage.outputs.tableEndpoint }
+      { name: 'Rag:ConversationsTable', value: storage.outputs.conversationsTableName }
       { name: 'Rag:DocumentsContainer', value: storage.outputs.documentsContainerName }
       { name: 'Rag:ChunkSizeTokens', value: '512' }
       { name: 'Rag:ChunkOverlapTokens', value: '64' }
     ]
+  }
+}
+
+module staticWebApp 'modules/staticwebapp.bicep' = {
+  name: 'staticwebapp'
+  scope: rg
+  params: {
+    location: staticWebAppLocation
+    name: 'swa-${resourceToken}'
+    apiBaseUrl: functionAppUrl
+    authClientId: authClientId
+    authClientSecret: authClientSecret
+    tags: union(tags, { 'azd-service-name': 'web' })
   }
 }
 
@@ -165,13 +211,14 @@ module functionApp 'modules/function.bicep' = {
   params: {
     location: location
     planName: 'plan-${resourceToken}'
-    functionAppName: 'func-${resourceToken}'
+    functionAppName: functionAppName
     appIntegrationSubnetId: network.outputs.appIntegrationSubnetId
     storageAccountName: storage.outputs.storageAccountName
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
     appConfigEndpoint: appConfig.outputs.appConfigEndpoint
     keyVaultUri: keyVault.outputs.keyVaultUri
     authClientId: authClientId
+    allowedCorsOrigins: [staticWebApp.outputs.staticWebAppUrl]
     additionalAppSettings: {
       Auth__TenantId: tenant().tenantId
       Auth__ClientId: authClientId
@@ -189,6 +236,8 @@ module rbac 'modules/rbac.bicep' = {
     aiAccountId: ai.outputs.accountId
     keyVaultId: keyVault.outputs.keyVaultId
     appConfigId: appConfig.outputs.appConfigId
+    foundryProjectPrincipalId: ai.outputs.projectPrincipalId
+    cosmosAccountId: cosmos.outputs.accountId
   }
 }
 
@@ -216,3 +265,10 @@ output AI_FOUNDRY_ENDPOINT string = ai.outputs.endpoint
 output OPENAI_ENDPOINT string = ai.outputs.openAiEndpoint
 output DOCUMENT_INTELLIGENCE_ENDPOINT string = ai.outputs.documentIntelligenceEndpoint
 output STORAGE_BLOB_ENDPOINT string = storage.outputs.blobEndpoint
+output STORAGE_TABLE_ENDPOINT string = storage.outputs.tableEndpoint
+output CONVERSATIONS_TABLE string = storage.outputs.conversationsTableName
+output COSMOS_ACCOUNT_NAME string = cosmos.outputs.accountName
+output COSMOS_ENDPOINT string = cosmos.outputs.documentEndpoint
+output STATIC_WEB_APP_NAME string = staticWebApp.outputs.staticWebAppName
+output STATIC_WEB_APP_URL string = staticWebApp.outputs.staticWebAppUrl
+output WEB_API_BASE_URL string = functionAppUrl
