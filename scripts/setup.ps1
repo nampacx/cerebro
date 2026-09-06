@@ -15,7 +15,8 @@ What it does, in order:
   5. Runs `azd up` (provision + deploy).
   6. Re-runs the app registration step with the deployed Static Web App hostname
      and redeploys the web client so its config picks up the final values.
-  7. Optionally initializes the database (schema + managed-identity role).
+  7. Optionally initializes the database: opens the PostgreSQL firewall for this
+     machine, then applies the schema and the managed-identity role.
 
 .EXAMPLE
 ./scripts/setup.ps1 -EnvironmentName rag-dev
@@ -127,6 +128,11 @@ try {
     }
 
     Write-Host "  PostgreSQL Entra admin: $adminPrincipalName ($adminObjectId, $adminPrincipalType)"
+    # AZURE_TENANT_ID is also a main.bicep output, but azd packages services in parallel
+    # with provisioning, so the web build runs before any output reaches the environment.
+    # generate-config.mjs refuses to emit a config without a tenant id, which fails
+    # `azd up` during packaging. Seed the value here, where it is already known.
+    Invoke-Checked { azd env set AZURE_TENANT_ID $account.tenantId } 'azd env set AZURE_TENANT_ID'
     Invoke-Checked { azd env set AZURE_LOCATION $Location } 'azd env set AZURE_LOCATION'
     Invoke-Checked { azd env set STATIC_WEB_APP_LOCATION $StaticWebAppLocation } 'azd env set STATIC_WEB_APP_LOCATION'
     Invoke-Checked { azd env set POSTGRES_ENTRA_ADMIN_OBJECT_ID $adminObjectId } 'azd env set POSTGRES_ENTRA_ADMIN_OBJECT_ID'
@@ -175,10 +181,18 @@ try {
             Write-Warning 'PUBLIC_NETWORK_ACCESS is Disabled; the server is only reachable from inside the VNet. Run scripts/setup-database.ps1 from a connected network.'
         }
         else {
+            # Step 4 registered $adminPrincipalName as the server's Entra administrator.
+            # Left to its own default, setup-database.ps1 would connect as the Azure CLI
+            # account name, which differs for guest users and is rejected at login.
+            # -ResourceGroup lets setup-database.ps1 open the PostgreSQL firewall for this
+            # machine without having to look the group up; -AdminUser keeps the connecting
+            # identity identical to the administrator step 4 registered on the server.
             & "$scriptRoot/setup-database.ps1" `
                 -ServerName $outputs.POSTGRES_SERVER_NAME `
                 -Database $outputs.POSTGRES_DATABASE `
-                -FunctionAppName $outputs.FUNCTION_APP_NAME
+                -FunctionAppName $outputs.FUNCTION_APP_NAME `
+                -AdminUser $adminPrincipalName `
+                -ResourceGroup $outputs.AZURE_RESOURCE_GROUP
         }
     }
 
