@@ -8,6 +8,9 @@ param privateEndpointSubnetId string
 param blobDnsZoneId string
 param tableDnsZoneId string
 param queueDnsZoneId string
+param fileDnsZoneId string
+@description('Name of the Function App content file share. WEBSITE_CONTENTOVERVNET=1 stops the platform from creating this share itself, so it has to exist before the app starts.')
+param contentShareName string
 @description('Azure Table that indexes Foundry conversation ids per user (PartitionKey = user object id).')
 param conversationsTableName string = 'conversations'
 
@@ -57,6 +60,19 @@ resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2023-05-0
   name: 'default'
 }
 
+resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2023-05-01' = {
+  parent: storageAccount
+  name: 'default'
+}
+
+// WEBSITE_CONTENTOVERVNET=1 routes the content share mount through the VNet, and in that
+// mode the Functions platform cannot create the share on its own. Without it the app never
+// mounts C:\home, which surfaces as Kudu returning 500s and the app hanging.
+resource contentShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-05-01' = {
+  parent: fileService
+  name: contentShareName
+}
+
 resource conversationsTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
   parent: tableService
   name: conversationsTableName
@@ -97,6 +113,22 @@ module queuePrivateEndpoint 'private-endpoint.bicep' = {
     targetResourceId: storageAccount.id
     groupId: 'queue'
     dnsZoneIds: [queueDnsZoneId]
+    tags: tags
+  }
+}
+
+// The Elastic Premium plan mounts WEBSITE_CONTENTSHARE over the VNet
+// (WEBSITE_CONTENTOVERVNET=1), so the file endpoint has to be reachable privately
+// or the app never mounts C:\home and Kudu fails with access denied.
+module filePrivateEndpoint 'private-endpoint.bicep' = {
+  name: 'pe-file-${storageAccountName}'
+  params: {
+    location: location
+    name: 'pe-file-${storageAccountName}'
+    subnetId: privateEndpointSubnetId
+    targetResourceId: storageAccount.id
+    groupId: 'file'
+    dnsZoneIds: [fileDnsZoneId]
     tags: tags
   }
 }

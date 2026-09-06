@@ -42,9 +42,13 @@ param embeddingModelVersion string = '1'
 @description('Embedding vector dimensions; must match db/schema.sql vector(N).')
 param embeddingDimensions int = 1536
 
-@description('Attach customer-managed Cosmos DB + Storage to Foundry so agent conversations are stored in your own subscription. Set to "false" if the capability host API rejects the configuration in your region.')
+@description('Attach customer-managed Cosmos DB + Storage + AI Search to Foundry so agent conversations are stored in your own subscription. Set to "false" if the capability host API rejects the configuration in your region.')
 @allowed(['true', 'false'])
 param useCustomFoundryStorage string = 'true'
+
+@description('SKU of the Azure AI Search service backing the Foundry agent vector store. The Agents capability host requires an AI Search connection even though this solution serves retrieval from pgvector, so basic is the default.')
+@allowed(['basic', 'standard'])
+param searchSku string = 'basic'
 
 @description('Region for the Static Web App. Static Web Apps is available in a limited set of regions; westeurope is the closest to swedencentral.')
 param staticWebAppLocation string = 'westeurope'
@@ -64,6 +68,10 @@ var functionAppUrl = 'https://${functionAppName}.azurewebsites.net'
 // for break-glass access.
 var generatedPostgresAdminPassword = 'Pg${toUpper(substring(uniqueString(postgresAdminPasswordSeed), 0, 7))}${uniqueString(subscription().id, environmentName, postgresAdminPasswordSeed)}#4z'
 var effectivePostgresAdminPassword = empty(postgresAdminPassword) ? generatedPostgresAdminPassword : postgresAdminPassword
+
+// Cosmos, Storage and AI Search are always deployed, so bring-your-own agent storage is
+// governed solely by this switch. The capability hosts require all three connections.
+var byoFoundryStorage = useCustomFoundryStorage == 'true'
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: 'rg-${environmentName}'
@@ -103,6 +111,8 @@ module storage 'modules/storage.bicep' = {
     blobDnsZoneId: network.outputs.blobDnsZoneId
     tableDnsZoneId: network.outputs.tableDnsZoneId
     queueDnsZoneId: network.outputs.queueDnsZoneId
+    fileDnsZoneId: network.outputs.fileDnsZoneId
+    contentShareName: toLower(functionAppName)
     tags: tags
   }
 }
@@ -116,6 +126,20 @@ module cosmos 'modules/cosmos.bicep' = {
     publicNetworkAccess: publicNetworkAccess
     privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
     cosmosDnsZoneId: network.outputs.cosmosDnsZoneId
+    tags: tags
+  }
+}
+
+module search 'modules/search.bicep' = {
+  name: 'search'
+  scope: rg
+  params: {
+    location: location
+    searchServiceName: 'srch-${resourceToken}'
+    sku: searchSku
+    publicNetworkAccess: publicNetworkAccess
+    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
+    searchDnsZoneId: network.outputs.searchDnsZoneId
     tags: tags
   }
 }
@@ -168,12 +192,17 @@ module ai 'modules/ai.bicep' = {
     embeddingModelDeploymentName: embeddingModelDeploymentName
     embeddingModelName: embeddingModelName
     embeddingModelVersion: embeddingModelVersion
-    useCustomFoundryStorage: useCustomFoundryStorage == 'true'
+    useCustomFoundryStorage: byoFoundryStorage
     cosmosAccountId: cosmos.outputs.accountId
     storageAccountId: storage.outputs.storageAccountId
+    searchServiceId: search.outputs.searchServiceId
     tags: tags
   }
 }
+
+@description('Public network access for the App Configuration store *during provisioning*. ARM writes key-values over the data plane, which it cannot reach through a private endpoint unless the deployment runs inside the VNet, so this defaults to Enabled and the azd postprovision hook closes it again. Local auth stays disabled, so Entra RBAC is enforced the whole time.')
+@allowed(['Enabled', 'Disabled'])
+param appConfigPublicNetworkAccess string = 'Enabled'
 
 module appConfig 'modules/appconfig.bicep' = {
   name: 'appconfig'
@@ -181,9 +210,11 @@ module appConfig 'modules/appconfig.bicep' = {
   params: {
     location: location
     appConfigName: 'appcs-${resourceToken}'
-    publicNetworkAccess: publicNetworkAccess
+    publicNetworkAccess: appConfigPublicNetworkAccess
     privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
     appConfigDnsZoneId: network.outputs.appConfigDnsZoneId
+    deployerPrincipalId: postgresEntraAdminObjectId
+    deployerPrincipalType: postgresEntraAdminPrincipalType
     tags: tags
     keyValues: [
       { name: 'Rag:OpenAiEndpoint', value: ai.outputs.openAiEndpoint }
@@ -249,7 +280,24 @@ module rbac 'modules/rbac.bicep' = {
     appConfigId: appConfig.outputs.appConfigId
     foundryProjectPrincipalId: ai.outputs.projectPrincipalId
     cosmosAccountId: cosmos.outputs.accountId
+    searchServiceId: search.outputs.searchServiceId
   }
+}
+
+// Created last: the capability hosts need the project identity to already hold data-plane
+// roles on Cosmos, Storage and AI Search, and need the Foundry account to be settled after
+// the model deployments.
+module foundryCapabilityHosts 'modules/foundry-caphost.bicep' = if (byoFoundryStorage) {
+  name: 'foundry-caphost'
+  scope: rg
+  params: {
+    accountName: ai.outputs.accountName
+    projectName: ai.outputs.projectName
+    cosmosConnectionName: ai.outputs.cosmosConnectionName
+    storageConnectionName: ai.outputs.storageConnectionName
+    searchConnectionName: ai.outputs.searchConnectionName
+  }
+  dependsOn: [rbac]
 }
 
 module pgPasswordSecret 'modules/kv-secret.bicep' = {
@@ -275,6 +323,7 @@ output POSTGRES_SERVER_NAME string = postgres.outputs.serverName
 output POSTGRES_FQDN string = postgres.outputs.serverFqdn
 output POSTGRES_DATABASE string = postgres.outputs.databaseName
 output APP_CONFIG_ENDPOINT string = appConfig.outputs.appConfigEndpoint
+output APP_CONFIG_NAME string = appConfig.outputs.appConfigName
 output KEY_VAULT_URI string = keyVault.outputs.keyVaultUri
 output POSTGRES_ADMIN_SECRET_NAME string = pgPasswordSecret.outputs.secretName
 output AI_FOUNDRY_ENDPOINT string = ai.outputs.endpoint
