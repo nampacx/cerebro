@@ -10,9 +10,10 @@ What it configures:
   * Application ID URI `api://<client-id>` and the `access_as_user` delegated scope
   * The `groups` claim on access tokens (security groups; used for RLS sharing)
   * SPA redirect URIs for the Static Web App and local Vite dev server
-  * A web redirect URI for the Static Web Apps built-in Entra provider
+  * A web redirect URI, plus ID token issuance, for the Static Web Apps built-in Entra provider
   * Pre-authorization of the SPA against its own API so users are not prompted twice
   * A client secret for the Static Web Apps auth provider
+  * Tenant-wide admin consent for that scope (skipped with -SkipAdminConsent)
 
 .EXAMPLE
 ./scripts/setup-app-registration.ps1 -DisplayName rag-app -StaticWebAppHostname swa-abc123.azurestaticapps.net -ApplyToAzdEnv
@@ -26,6 +27,7 @@ param(
     [string] $StaticWebAppHostname,
     [string] $LocalDevOrigin = 'http://localhost:5173',
     [switch] $SkipSecret,
+    [switch] $SkipAdminConsent,
     [switch] $ApplyToAzdEnv
 )
 
@@ -111,7 +113,19 @@ else {
 Write-Host "Configuring redirect URIs and token claims ..."
 Invoke-GraphPatch -ObjectId $objectId -Body @{
     spa                   = @{ redirectUris = $spaRedirects }
-    web                   = @{ redirectUris = $webRedirects }
+    web                   = @{
+        redirectUris          = $webRedirects
+        # The Static Web Apps runtime signs users in with the hybrid flow
+        # (`response_type=code id_token`), so Entra must be allowed to issue an ID token
+        # from the authorize endpoint. Without this it rejects the request and posts the
+        # error back to /.auth/login/aad/callback: Static Web Apps never sets its auth
+        # cookie, every page then 401s, and the 401 response override in
+        # staticwebapp.config.json sends the browser back to /.auth/login/aad - so
+        # sign-in loops instead of failing visibly. Graph replaces the whole `web`
+        # object on PATCH, so this has to be set here; a portal toggle would be undone
+        # by the next run of this script.
+        implicitGrantSettings = @{ enableIdTokenIssuance = $true }
+    }
     optionalClaims        = @{
         accessToken = @(@{ name = 'groups'; essential = $false; additionalProperties = @() })
         idToken     = @(@{ name = 'groups'; essential = $false; additionalProperties = @() })
@@ -147,7 +161,25 @@ if (-not $SkipSecret) {
     $secret = $credential.password
 }
 
-# ---- 6. Report ---------------------------------------------------------------
+# ---- 6. Admin consent -------------------------------------------------------
+# The SPA asks for this app's own scope, so without a tenant-wide grant each user is
+# consented individually - and the Static Web Apps built-in provider has nowhere to show
+# that prompt, so sign-in fails instead of asking. Granting it needs an administrator, so
+# a failure here is reported rather than thrown: the deployment is otherwise complete and
+# an administrator can run the single command afterwards.
+$consentGranted = $false
+if (-not $SkipAdminConsent) {
+    Write-Host "Granting tenant-wide admin consent ..."
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        az ad app permission admin-consent --id $appId --only-show-errors 2>$null
+        if ($LASTEXITCODE -eq 0) { $consentGranted = $true; break }
+        # A service principal created seconds ago is not always visible to the consent
+        # endpoint yet, so an initial failure is worth retrying before reporting it.
+        if ($attempt -lt 3) { Start-Sleep -Seconds (5 * $attempt) }
+    }
+}
+
+# ---- 7. Report ---------------------------------------------------------------
 $tenantId = az account show --query tenantId -o tsv
 
 Write-Host ''
@@ -171,5 +203,15 @@ else {
 }
 
 Write-Host ''
-Write-Host 'Admin consent (recommended, requires a Global/Application Administrator):'
-Write-Host "  az ad app permission admin-consent --id $appId"
+if ($consentGranted) {
+    Write-Host 'Admin consent granted for the tenant.' -ForegroundColor Green
+}
+elseif ($SkipAdminConsent) {
+    Write-Host 'Admin consent skipped. Every user is prompted individually until an administrator runs:'
+    Write-Host "  az ad app permission admin-consent --id $appId"
+}
+else {
+    Write-Warning 'Could not grant admin consent - the signed-in account is most likely not a Global, Privileged Role or Cloud Application Administrator.'
+    Write-Host 'Sign-in will not work until an administrator runs:'
+    Write-Host "  az ad app permission admin-consent --id $appId"
+}
