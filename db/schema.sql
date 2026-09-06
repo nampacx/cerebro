@@ -98,15 +98,33 @@ CREATE POLICY documents_update ON documents FOR UPDATE
     USING (owner_oid = app_current_user_oid())
     WITH CHECK (owner_oid = app_current_user_oid());
 
--- ACL entries: only the owner manages sharing; visible rows follow the document.
+-- ACL entries: only the owner manages sharing.
+--
+-- Read and write are deliberately separate policies rather than one FOR ALL. documents_select
+-- above reads this table, so an ACL read policy that looked back at documents would make the
+-- two mutually recursive and every query against documents would fail with
+-- "42P17: infinite recursion detected in policy for relation documents". A FOR ALL policy also
+-- covers SELECT, so it is not enough to add a second permissive read policy beside it - the
+-- recursive branch would still be evaluated. Read therefore answers only from the caller's own
+-- group membership, which is exactly what documents_select asks of it, and the write policies
+-- keep the ownership check: reaching documents from there terminates at the read policy below.
 DROP POLICY IF EXISTS document_acl_all ON document_acl;
-CREATE POLICY document_acl_all ON document_acl FOR ALL
-    USING (EXISTS (
+
+DROP POLICY IF EXISTS document_acl_select ON document_acl;
+CREATE POLICY document_acl_select ON document_acl FOR SELECT
+    USING (group_oid = ANY (app_current_groups()));
+
+DROP POLICY IF EXISTS document_acl_insert ON document_acl;
+CREATE POLICY document_acl_insert ON document_acl FOR INSERT
+    WITH CHECK (EXISTS (
         SELECT 1 FROM documents d
         WHERE d.id = document_acl.document_id
           AND d.owner_oid = app_current_user_oid()
-    ))
-    WITH CHECK (EXISTS (
+    ));
+
+DROP POLICY IF EXISTS document_acl_delete ON document_acl;
+CREATE POLICY document_acl_delete ON document_acl FOR DELETE
+    USING (EXISTS (
         SELECT 1 FROM documents d
         WHERE d.id = document_acl.document_id
           AND d.owner_oid = app_current_user_oid()

@@ -37,7 +37,13 @@
     <PackageReference Include="Azure.Identity" Version="1.21.0" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.29.2" />
     <PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.20.0" />
-    <PackageReference Include="Microsoft.ApplicationInsights.WorkerService" Version="3.1.2" />
+    <!--
+      Stay on the 2.x line: Microsoft.Azure.Functions.Worker.ApplicationInsights below is built
+      against Application Insights 2.23.0, and 3.x drops ITelemetryInitializer. Taking 3.x here
+      wins the version conflict and the host dies at startup with a TypeLoadException for that
+      type, which surfaces as "HTTP Error 500.30 - ASP.NET Core app failed to start".
+    -->
+    <PackageReference Include="Microsoft.ApplicationInsights.WorkerService" Version="2.23.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.52.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.ApplicationInsights" Version="2.51.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore" Version="2.1.1" />
