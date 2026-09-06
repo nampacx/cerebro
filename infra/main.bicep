@@ -262,6 +262,10 @@ module pgPasswordSecret 'modules/kv-secret.bicep' = {
   }
 }
 
+// Consumed by src/web/scripts/generate-config.mjs to stamp the tenant-specific
+// `openIdIssuer` into staticwebapp.config.json. Without it the generator has no
+// tenant id and Static Web Apps sign-in loops. azd exports outputs as env vars.
+output AZURE_TENANT_ID string = tenant().tenantId
 output AZURE_LOCATION string = location
 output AZURE_RESOURCE_GROUP string = rg.name
 output FUNCTION_APP_NAME string = functionApp.outputs.functionAppName

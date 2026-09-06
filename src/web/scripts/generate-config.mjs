@@ -20,8 +20,22 @@ const clientId = process.env.VITE_AZURE_CLIENT_ID || process.env.AUTH_CLIENT_ID 
 if (!apiBaseUrl) {
   console.warn('[generate-config] No API base URL found; the SPA will call same-origin /api.');
 }
+
+// The tenant id is baked into `openIdIssuer` below, which cannot use app-setting
+// indirection the way the client id and secret do - it has to be a literal.
+// A missing value used to fall back to the multi-tenant `organizations` endpoint,
+// whose discovery document advertises a templated issuer
+// ("https://login.microsoftonline.com/{tenantid}/v2.0"). Static Web Apps cannot
+// resolve that against a single-tenant (AzureADMyOrg) app registration, so
+// /.auth/login/aad redirects to itself with a fresh nonce forever and never
+// reaches Entra. Fail the build instead: an infinite sign-in loop on the deployed
+// site is far harder to diagnose than an error here.
 if (!tenantId || !clientId) {
-  console.warn('[generate-config] Tenant/client id missing; sign-in will need manual configuration.');
+  throw new Error(
+    '[generate-config] Tenant/client id missing - sign-in would break with an infinite redirect loop.\n' +
+      "  Set them in the azd environment:  azd env set AZURE_TENANT_ID <guid>\n" +
+      '  or, for a standalone build, export VITE_AZURE_TENANT_ID / VITE_AZURE_CLIENT_ID.'
+  );
 }
 
 writeFileSync(
@@ -31,7 +45,7 @@ writeFileSync(
       apiBaseUrl: apiBaseUrl.replace(/\/$/, ''),
       tenantId,
       clientId,
-      apiScope: clientId ? `api://${clientId}/access_as_user` : ''
+      apiScope: `api://${clientId}/access_as_user`
     },
     null,
     2
@@ -39,7 +53,7 @@ writeFileSync(
 );
 
 const template = readFileSync(join(root, 'staticwebapp.config.template.json'), 'utf8');
-const swaConfig = template.replace('AZURE_TENANT_ID', tenantId || 'organizations');
+const swaConfig = template.replace('AZURE_TENANT_ID', tenantId);
 writeFileSync(join(publicDir, 'staticwebapp.config.json'), swaConfig);
 
-console.log('[generate-config] Wrote public/config.json and public/staticwebapp.config.json');
+console.log(`[generate-config] Wrote public/config.json and public/staticwebapp.config.json (tenant ${tenantId})`);
