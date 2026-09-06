@@ -103,9 +103,11 @@ resource authSettings 'Microsoft.Web/sites/config@2024-04-01' = if (!empty(authC
             'api://${authClientId}'
             authClientId
           ]
-          defaultAuthorizationPolicy: {
-            allowedApplications: []
-          }
+          // Deliberately no defaultAuthorizationPolicy. Easy Auth's built-in checks answer 403
+          // before the request ever reaches the host, and an empty allowlist is a policy no
+          // caller satisfies. Authorization belongs to EntraTokenValidator and the row-level
+          // security policies; A2A partners also arrive with tokens acquired by their own app
+          // registrations, which a client-id allowlist here would reject.
         }
       }
     }
