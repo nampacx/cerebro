@@ -13,7 +13,7 @@ param deployerPrincipalType string = 'User'
 
 var appConfigurationDataOwnerRoleId = '5ae67dd6-50cb-40e7-96ff-dc2bfa4b606b'
 
-resource appConfig 'Microsoft.AppConfiguration/configurationStores@2024-05-01' = {
+resource appConfig 'Microsoft.AppConfiguration/configurationStores@2024-06-01' = {
   name: appConfigName
   location: location
   tags: tags
@@ -44,7 +44,7 @@ resource deployerDataOwner 'Microsoft.Authorization/roleAssignments@2022-04-01' 
   }
 }
 
-resource configKeyValues 'Microsoft.AppConfiguration/configurationStores/keyValues@2024-05-01' = [
+resource configKeyValues 'Microsoft.AppConfiguration/configurationStores/keyValues@2024-06-01' = [
   for kv in keyValues: {
     parent: appConfig
     name: kv.name
