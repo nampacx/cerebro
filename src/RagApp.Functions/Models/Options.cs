@@ -5,6 +5,8 @@ public class RagOptions
     public const string SectionName = "Rag";
 
     public string OpenAiEndpoint { get; set; } = string.Empty;
+    /// <summary>Project-scoped Foundry endpoint (`https://{account}.services.ai.azure.com/api/projects/{project}`), required for the conversations API to reach the project's BYO Cosmos DB thread storage.</summary>
+    public string FoundryProjectEndpoint { get; set; } = string.Empty;
     public string DocumentIntelligenceEndpoint { get; set; } = string.Empty;
     public string ChatDeployment { get; set; } = "gpt-5";
     public string EmbeddingDeployment { get; set; } = "text-embedding-3-large";
@@ -15,8 +17,11 @@ public class RagOptions
     public string? PostgresUser { get; set; }
     public string BlobEndpoint { get; set; } = string.Empty;
     public string TableEndpoint { get; set; } = string.Empty;
+    public string QueueEndpoint { get; set; } = string.Empty;
     public string ConversationsTable { get; set; } = "conversations";
     public string DocumentsContainer { get; set; } = "documents";
+    /// <summary>Must match the literal queue name in ProcessDocumentFunction's [QueueTrigger] — that attribute can't reference this App-Configuration-sourced value (see the comment there).</summary>
+    public string DocumentProcessingQueue { get; set; } = "document-processing";
     public int ChunkSizeTokens { get; set; } = 512;
     public int ChunkOverlapTokens { get; set; } = 64;
 }

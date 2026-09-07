@@ -13,6 +13,8 @@ param fileDnsZoneId string
 param contentShareName string
 @description('Azure Table that indexes Foundry conversation ids per user (PartitionKey = user object id).')
 param conversationsTableName string = 'conversations'
+@description('Queue carrying ingestion context (owner, document id, blob name) from the upload endpoint to the document-processing function. Must match the literal queue name in ProcessDocumentFunction\'s [QueueTrigger].')
+param documentProcessingQueueName string = 'document-processing'
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageAccountName
@@ -63,6 +65,16 @@ resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2023-05-0
 resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2023-05-01' = {
   parent: storageAccount
   name: 'default'
+}
+
+resource queueService 'Microsoft.Storage/storageAccounts/queueServices@2023-05-01' = {
+  parent: storageAccount
+  name: 'default'
+}
+
+resource documentProcessingQueue 'Microsoft.Storage/storageAccounts/queueServices/queues@2023-05-01' = {
+  parent: queueService
+  name: documentProcessingQueueName
 }
 
 // WEBSITE_CONTENTOVERVNET=1 routes the content share mount through the VNet, and in that
@@ -140,3 +152,4 @@ output tableEndpoint string = storageAccount.properties.primaryEndpoints.table
 output queueEndpoint string = storageAccount.properties.primaryEndpoints.queue
 output documentsContainerName string = documentsContainer.name
 output conversationsTableName string = conversationsTable.name
+output documentProcessingQueueName string = documentProcessingQueue.name

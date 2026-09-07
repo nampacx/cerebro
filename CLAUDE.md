@@ -46,10 +46,16 @@ This is the central design constraint; most other decisions follow from it.
 
 ## Request flows
 
-**Ingestion is split across two processes** and the ingestion context travels through blob metadata:
+**Ingestion is split across two processes** and the ingestion context travels through an explicit queue message, not blob metadata:
 
-1. [Services/DocumentUploadService.cs](src/RagApp.Functions/Services/DocumentUploadService.cs) — writes the `pending` row *before* uploading the blob (so the row exists when the trigger fires), stamps `ownerOid` / `documentId` / `groupIds` / `originalFilename` metadata (keys are `const` on that class), returns `202`.
-2. [Functions/ProcessDocumentFunction.cs](src/RagApp.Functions/Functions/ProcessDocumentFunction.cs) → [Services/DocumentProcessingService.cs](src/RagApp.Functions/Services/DocumentProcessingService.cs) — the blob trigger runs under the *app* identity but reconstructs `new UserContext(ownerOid, [], null)` from that metadata, so writes still pass owner-scoped RLS policies. Status transitions `pending → processing → completed|failed`; `AddChunksAsync` deletes existing chunks first, making reprocessing idempotent.
+1. [Services/DocumentUploadService.cs](src/RagApp.Functions/Services/DocumentUploadService.cs) — writes the `pending` row *before* uploading the blob (so the row exists when processing picks it up), uploads the blob, then sends a `DocumentProcessingMessage` (documentId/ownerOid/filename/blobName) to the `document-processing` storage queue, returns `202`.
+2. [Functions/ProcessDocumentFunction.cs](src/RagApp.Functions/Functions/ProcessDocumentFunction.cs) → [Services/DocumentProcessingService.cs](src/RagApp.Functions/Services/DocumentProcessingService.cs) — a `[QueueTrigger]` (not `[BlobTrigger]`) runs under the *app* identity but reconstructs `new UserContext(ownerOid, [], null)` from the message, so writes still pass owner-scoped RLS policies. Status transitions `pending → processing → completed|failed`; `AddChunksAsync` deletes existing chunks first, making reprocessing idempotent.
+
+The queue name is hardcoded (`"document-processing"`) as a literal in `[QueueTrigger]`, not `%Rag:DocumentProcessingQueue%`: the language-neutral Functions host resolves trigger binding expressions before the isolated worker process starts, so it can never see `Rag:*` values sourced from Azure App Configuration (only `Program.cs` in the worker loads those). `RagOptions.DocumentProcessingQueue` (used by the producer side) must keep matching that literal. This is also why `[BlobTrigger]` used to hardcode `"documents"` instead of referencing `Rag:DocumentsContainer`.
+
+A classic `[BlobTrigger]` was tried first and dropped: its fast path depends on the storage account's classic Storage Analytics logs, which aren't enabled by default on new accounts, so its fallback container-scan alone left new blobs undetected for many minutes or longer in practice.
+
+`host.json` sets `extensions:queues:messageEncoding` to `"none"`. The queue trigger extension defaults to expecting base64-encoded message bodies (for compatibility with the Functions queue *output binding*, which base64-encodes automatically); `DocumentUploadService` sends plain-text JSON through a raw `QueueClient` that doesn't, and that mismatch has no visible failure mode — the listener fails to decode the message before it reaches user code or any logger, so nothing appears in Application Insights beyond a `MaxDequeueCount` warning once the message is poisoned. If a producer and `host.json` ever disagree on this setting again, expect exactly that: silent poison-queue messages with no exception anywhere.
 
 **Chat** goes through [Services/ChatOrchestrator.cs](src/RagApp.Functions/Services/ChatOrchestrator.cs):
 
