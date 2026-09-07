@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Creates (or updates) the Entra ID app registration used by the RAG API, the
+Creates (or updates) the Entra ID app registration used by the Cerebro API, the
 Static Web App sign-in and the A2A on-behalf-of flow.
 
 The registration is required — the Function App validates Entra ID access tokens
@@ -16,14 +16,14 @@ What it configures:
   * Tenant-wide admin consent for that scope (skipped with -SkipAdminConsent)
 
 .EXAMPLE
-./scripts/setup-app-registration.ps1 -DisplayName rag-app -StaticWebAppHostname swa-abc123.azurestaticapps.net -ApplyToAzdEnv
+./scripts/setup-app-registration.ps1 -DisplayName cerebro -StaticWebAppHostname swa-abc123.azurestaticapps.net -ApplyToAzdEnv
 
 .EXAMPLE
 # Before the Static Web App exists; re-run later with -StaticWebAppHostname to add the redirect URIs.
-./scripts/setup-app-registration.ps1 -DisplayName rag-app
+./scripts/setup-app-registration.ps1 -DisplayName cerebro
 #>
 param(
-    [string] $DisplayName = 'rag-app',
+    [string] $DisplayName = 'cerebro',
     [string] $StaticWebAppHostname,
     [string] $LocalDevOrigin = 'http://localhost:5173',
     [switch] $SkipSecret,
@@ -81,10 +81,10 @@ $apiScopes = @(
         value                   = 'access_as_user'
         type                    = 'User'
         isEnabled               = $true
-        adminConsentDisplayName = 'Access the RAG API as the signed-in user'
-        adminConsentDescription = 'Allows the app to call the RAG API on behalf of the signed-in user. Row-level security is applied to that user.'
-        userConsentDisplayName  = 'Access the RAG API on your behalf'
-        userConsentDescription  = 'Allows the app to read and write your documents and conversations in the RAG API.'
+        adminConsentDisplayName = 'Access the Cerebro API as the signed-in user'
+        adminConsentDescription = 'Allows the app to call the Cerebro API on behalf of the signed-in user. Row-level security is applied to that user.'
+        userConsentDisplayName  = 'Access the Cerebro API on your behalf'
+        userConsentDescription  = 'Allows the app to read and write your documents and conversations in Cerebro.'
     }
 )
 

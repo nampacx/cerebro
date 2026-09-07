@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Sets up the RAG database: creates the managed-identity role for the function app
+Sets up the Cerebro database: creates the managed-identity role for the function app
 and applies db/schema.sql with grants. Run after `azd up` while connected to a
 network that can reach the PostgreSQL server (private endpoint or temporary
 public access).

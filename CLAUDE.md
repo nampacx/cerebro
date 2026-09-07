@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-An enterprise RAG platform on Azure: documents are chunked and embedded into PostgreSQL `pgvector`, and **every** query is filtered by native PostgreSQL row-level security keyed on the calling user's Entra ID `oid`/`groups` claims. Deployed with `azd` as two services declared in [azure.yaml](azure.yaml): `api` (Azure Functions, .NET 10 isolated) and `web` (React + Vite on Static Web Apps).
+**Cerebro** — an enterprise RAG platform on Azure: documents are chunked and embedded into PostgreSQL `pgvector`, and **every** query is filtered by native PostgreSQL row-level security keyed on the calling user's Entra ID `oid`/`groups` claims. Deployed with `azd` as two services declared in [azure.yaml](azure.yaml): `api` (Azure Functions, .NET 10 isolated) and `web` (React + Vite on Static Web Apps).
 
 ## Commands
 
@@ -21,7 +21,7 @@ npm run build                 # generate-config + tsc -b + vite build
 
 ```powershell
 # Full provision + deploy (creates app registration, azd env, runs azd up)
-./scripts/setup.ps1 -EnvironmentName rag-dev -PublicNetworkAccess Enabled -InitializeDatabase
+./scripts/setup.ps1 -EnvironmentName cerebro-dev -PublicNetworkAccess Enabled -InitializeDatabase
 
 # Redeploy one service after code changes
 azd deploy api
