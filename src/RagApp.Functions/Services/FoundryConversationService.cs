@@ -16,7 +16,10 @@ namespace RagApp.Functions.Services;
 /// </summary>
 public class FoundryConversationService
 {
-    private static readonly string[] Scope = ["https://cognitiveservices.azure.com/.default"];
+    // The conversations API is only served off the project-scoped host (services.ai.azure.com/api/projects/...),
+    // which is wired to the project's BYO Cosmos DB thread storage; the plain account endpoint 404s. That host
+    // authorizes against the ai.azure.com audience, not cognitiveservices.azure.com.
+    private static readonly string[] Scope = ["https://ai.azure.com/.default"];
 
     private readonly HttpClient _httpClient;
     private readonly TokenCredential _credential;
@@ -32,7 +35,7 @@ public class FoundryConversationService
         _httpClient = httpClient;
         _credential = credential;
         _logger = logger;
-        _baseUri = new Uri(options.Value.OpenAiEndpoint.TrimEnd('/') + "/openai/v1/");
+        _baseUri = new Uri(options.Value.FoundryProjectEndpoint.TrimEnd('/') + "/openai/v1/");
     }
 
     private async Task AuthorizeAsync(HttpRequestMessage request, CancellationToken ct)

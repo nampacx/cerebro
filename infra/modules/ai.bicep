@@ -186,6 +186,8 @@ output accountName string = account.name
 output accountId string = account.id
 output endpoint string = account.properties.endpoint
 output openAiEndpoint string = 'https://${accountName}.openai.azure.com/'
+@description('Project-scoped endpoint. The conversations API (BYO Cosmos DB thread storage) is only served here, not off the account endpoint above.')
+output foundryProjectEndpoint string = 'https://${accountName}.services.ai.azure.com/api/projects/${projectName}'
 output documentIntelligenceEndpoint string = 'https://${accountName}.cognitiveservices.azure.com/'
 output projectName string = project.name
 output projectPrincipalId string = project.identity.principalId
