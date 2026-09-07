@@ -126,6 +126,13 @@ module cosmos 'modules/cosmos.bicep' = {
     publicNetworkAccess: publicNetworkAccess
     privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
     cosmosDnsZoneId: network.outputs.cosmosDnsZoneId
+    // Reverted to always-empty: Cosmos DB's networkAclBypassResourceIds only supports
+    // Synapse Link / Data Factory / Azure ML workspace resource ids, not Cognitive
+    // Services/Foundry accounts, so passing foundryAccountResourceId here fails
+    // provisioning with "Invalid supplied NetworkAclBypassResourceId". The
+    // Foundry-Agents-to-Cosmos firewall bypass this was meant to provide still needs a
+    // different mechanism.
+    networkAclBypassResourceIds: []
     tags: tags
   }
 }
@@ -218,6 +225,7 @@ module appConfig 'modules/appconfig.bicep' = {
     tags: tags
     keyValues: [
       { name: 'Rag:OpenAiEndpoint', value: ai.outputs.openAiEndpoint }
+      { name: 'Rag:FoundryProjectEndpoint', value: ai.outputs.foundryProjectEndpoint }
       { name: 'Rag:DocumentIntelligenceEndpoint', value: ai.outputs.documentIntelligenceEndpoint }
       { name: 'Rag:ChatDeployment', value: chatModelDeploymentName }
       { name: 'Rag:EmbeddingDeployment', value: embeddingModelDeploymentName }

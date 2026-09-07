@@ -7,6 +7,7 @@
     "Auth__TenantId": "<your-tenant-id>",
     "Auth__ClientId": "<your-app-registration-client-id>",
     "Rag__OpenAiEndpoint": "https://<your-foundry-account>.openai.azure.com/",
+    "Rag__FoundryProjectEndpoint": "https://<your-foundry-account>.services.ai.azure.com/api/projects/<your-project-name>",
     "Rag__DocumentIntelligenceEndpoint": "https://<your-foundry-account>.cognitiveservices.azure.com/",
     "Rag__ChatDeployment": "gpt-5",
     "Rag__EmbeddingDeployment": "text-embedding-3-large",
