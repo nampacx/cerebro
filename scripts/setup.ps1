@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-One-shot setup for the RAG solution: Entra ID app registration + azd environment
+One-shot setup for Cerebro: Entra ID app registration + azd environment
 configuration + provisioning and deployment.
 
 What it does, in order:
@@ -19,15 +19,15 @@ What it does, in order:
      machine, then applies the schema and the managed-identity role.
 
 .EXAMPLE
-./scripts/setup.ps1 -EnvironmentName rag-dev
+./scripts/setup.ps1 -EnvironmentName cerebro-dev
 
 .EXAMPLE
 # Dev/test with public network access so the database can be initialized from your machine.
-./scripts/setup.ps1 -EnvironmentName rag-dev -PublicNetworkAccess Enabled -InitializeDatabase
+./scripts/setup.ps1 -EnvironmentName cerebro-dev -PublicNetworkAccess Enabled -InitializeDatabase
 
 .EXAMPLE
 # Only refresh the app registration and azd settings, skip deployment.
-./scripts/setup.ps1 -EnvironmentName rag-dev -SkipDeploy
+./scripts/setup.ps1 -EnvironmentName cerebro-dev -SkipDeploy
 #>
 [CmdletBinding()]
 param(

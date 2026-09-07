@@ -1,4 +1,4 @@
--- Enterprise RAG schema with pgvector and native Row-Level Security.
+-- Cerebro: enterprise RAG schema with pgvector and native Row-Level Security.
 -- Run as the PostgreSQL Entra administrator against the ragdb database, e.g.:
 --   psql "host=<server>.postgres.database.azure.com dbname=ragdb user=<entra-admin-upn> sslmode=require" -f db/schema.sql
 -- Vector dimension must match the App Configuration key Rag:EmbeddingDimensions.

@@ -24,7 +24,7 @@ export default function App() {
   if (!user) {
     return (
       <main className="loading">
-        <h1>RAG Workspace</h1>
+        <h1>🧠 Cerebro</h1>
         <p>Sign in with your organizational account to continue.</p>
         <button type="button" onClick={login}>
           Sign in
@@ -36,7 +36,7 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>RAG Workspace</h1>
+        <h1>🧠 Cerebro</h1>
         <nav>
           <button type="button" className={tab === 'chat' ? 'active' : ''} onClick={() => setTab('chat')}>
             Chat

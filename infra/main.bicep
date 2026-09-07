@@ -187,7 +187,7 @@ module ai 'modules/ai.bicep' = {
   params: {
     location: location
     accountName: 'aif-${resourceToken}'
-    projectName: 'rag-project'
+    projectName: 'cerebro-project'
     publicNetworkAccess: publicNetworkAccess
     privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
     agentSubnetId: network.outputs.agentSubnetId

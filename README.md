@@ -1,47 +1,63 @@
-# Enterprise RAG on Azure — PostgreSQL pgvector + Microsoft Foundry + Agent Framework
+# 🧠 Cerebro
 
-Retrieval-augmented generation platform with **per-user row-level security**:
+**Enterprise RAG on Azure — PostgreSQL `pgvector` + native Row-Level Security + Microsoft Foundry (BYO services)**
+
+> "Cerebro amplifies Xavier's psychic powers, allowing him to detect mutants anywhere on the planet — but it doesn't show him everything. It reads *the signature of the person in the chair* and surfaces only what that signature is tuned to find."
+
+That's the whole idea here, minus the psychic helmet. 🪖 Every query against this platform — chat, retrieval, document listing, all of it — is filtered through **native PostgreSQL row-level security**, keyed on *your* Entra ID identity. Two people can hit the exact same endpoint and get answers grounded in completely different documents, because the database itself is doing the reading of who's in the chair. No app-code ACL to forget, no admin flag to misconfigure — if you're not cleared to see it, RLS makes the row disappear before it ever reaches a retrieval result, an LLM prompt, or an API response. 🕵️
+
+## 🧭 Principles
+
+- 🔒 **RLS is the only ACL.** There is no parallel "check permissions in code" path — retrieval, listing, chat, all go through the same PostgreSQL policies. If a query bypasses `SetUserContextAsync`, it returns *zero rows*, never *someone else's* rows.
+- 🕸️ **Private by default.** `PUBLIC_NETWORK_ACCESS=Disabled` is the default, not an add-on — PostgreSQL, Storage, Cosmos DB, Key Vault, App Configuration, Azure AI Search and Foundry all sit behind private endpoints in a VNet. The SPA and the Function App's own front door stay public by design (someone has to answer the browser); everything behind them doesn't have to.
+- 🪪 **Entra ID end-to-end.** The same `oid`/`groups` claims that get a user through the front door are what the database reads to decide what they can see. Identity doesn't get translated or re-derived anywhere in between.
+- 🧩 **Bring your own Foundry services.** Chat history lives in *your* Cosmos DB, not a black box you can't audit. This is a wiring pattern for BYO storage, not a hosted SaaS.
+- 🏗️ **Managed identity everywhere.** The app talks to Postgres, Blob/Queue/Table, Cosmos, Key Vault, App Configuration and Foundry as itself — no connection strings, no secrets sitting in config waiting to leak.
+- ⚡ **Solution accelerator, not a framework.** This is meant to be forked, read end-to-end, and adapted — not installed as a dependency.
+
+## 🔍 What it does
 
 - **Azure Database for PostgreSQL Flexible Server** with **pgvector** for chunk + embedding storage, protected by **native PostgreSQL Row-Level Security** (owner + optional Entra ID group sharing)
-- **Microsoft Foundry (Azure AI Foundry)** hosting the chat model (GPT-5 series, deployment name parameterized) and the embedding model
+- **Microsoft Foundry (Azure AI Foundry)** hosts the chat model (GPT-5 series) and the embedding model
 - **Azure Functions (C#, .NET 10 isolated)** backend built on the **Microsoft Agent Framework**
-- **Asynchronous ingestion**: upload → Azure Blob Storage (returns `202`) → **blob trigger** → Foundry **Document Intelligence** (`prebuilt-read`) → chunking → embeddings → pgvector with citations
-- **Chat history** in **Microsoft Foundry conversations**, backed by a **customer-managed Cosmos DB** account; an Azure Table maps users to their conversation ids so sessions can be resumed
+- **Asynchronous ingestion**: upload → Blob Storage → **queue trigger** → Foundry **Document Intelligence** (`prebuilt-read`) → chunking → embeddings → pgvector with citations
+- **Chat history** in **Microsoft Foundry conversations**, backed by a **customer-managed Cosmos DB** account; an Azure Table maps users to their conversation ids so sessions resume correctly
 - **Azure Static Web App** (React + Vite) example client with document upload, status tracking and a chat UI with conversation history
-- **Entra ID authorization** end to end; the caller's `oid`/`groups` claims drive RLS on retrieval
-- **A2A**: agent card + JSON-RPC endpoint, including the **on-behalf-of (OBO)** flow so partner agents act as the end user
-- **Enterprise networking**: VNet integration, private endpoints + private DNS for PostgreSQL, Blob/Table/Queue, Cosmos DB, Key Vault, App Configuration, Azure AI Search and Foundry; managed identity everywhere; Key Vault for secrets; App Configuration for app settings
+- **Entra ID authorization** end to end — the caller's `oid`/`groups` claims drive RLS on every retrieval
+- **A2A**: agent card + JSON-RPC endpoint, including the **on-behalf-of (OBO)** flow so partner agents act *as the end user*, never as themselves
+- **Enterprise networking**: VNet integration, private endpoints + private DNS everywhere it matters, managed identity everywhere, Key Vault for secrets, App Configuration for app settings
 
 ```mermaid
 flowchart LR
   SPA[Static Web App<br/>React + Vite<br/>Entra ID sign-in] -->|Bearer token| FN[Function App<br/>.NET 10 + Agent Framework]
   U[Partner agent<br/>OBO token] -->|A2A JSON-RPC| FN
-  FN -->|upload| BLOB[(Blob Storage)]
-  BLOB -->|blob trigger| PROC[Async ingestion<br/>read - chunk - embed]
+  FN -->|upload + pending row| BLOB[(Blob Storage)]
+  FN -->|enqueue| Q[[document-processing queue]]
+  Q -->|queue trigger| PROC[Async ingestion<br/>read - chunk - embed]
   PROC --> PG[(PostgreSQL<br/>pgvector + RLS)]
-  FN -->|retrieval| PG
+  FN -->|retrieval, RLS-scoped| PG
   FN --> TBL[(Azure Table<br/>conversation index)]
   FN --> AI[Foundry<br/>GPT-5 + embeddings +<br/>Document Intelligence +<br/>conversations]
-  AI --> COSMOS[(Cosmos DB<br/>thread storage)]
+  AI --> COSMOS[(Cosmos DB<br/>thread storage, BYO)]
   AI --> SRCH[(Azure AI Search<br/>agent vector store<br/>required by capability host)]
   FN --> KV[Key Vault]
   FN --> CFG[App Configuration]
 ```
 
-## Repository layout
+## 📁 Repository layout
 
 | Path | Purpose |
 |---|---|
 | `infra/` | Bicep (azd-compatible): VNet, private endpoints, PostgreSQL, Foundry + Cosmos DB thread storage + Azure AI Search, Function App, Static Web App, Key Vault, App Configuration, monitoring |
-| `db/schema.sql` | pgvector schema, tables and row-level security policies |
+| `db/schema.sql` | pgvector schema, tables and row-level security policies — the actual "Cerebro" |
 | `scripts/setup.ps1` | **One-shot setup**: prerequisites, azd environment, app registration, `azd up`, post-deployment redirect URIs and (optionally) the database |
 | `scripts/setup-app-registration.ps1` | Creates/updates the Entra ID app registration (API scope, groups claim, redirect URIs, client secret) |
 | `scripts/setup-database.ps1` | Creates the managed-identity DB role and applies the schema |
 | `scripts/teardown.ps1` | **One-shot teardown**: `azd down --force --purge` plus the app registration and stale azd values that `azd down` leaves behind |
-| `src/RagApp.Functions/` | Function app: upload, async ingestion (blob trigger), chat agent, conversations, A2A endpoints |
+| `src/RagApp.Functions/` | Function app: upload, async ingestion (queue trigger), chat agent, conversations, A2A endpoints |
 | `src/web/` | React + Vite example client hosted on Azure Static Web Apps |
 
-## API
+## 🔌 API
 
 | Route | Method | Description |
 |---|---|---|
@@ -57,36 +73,38 @@ flowchart LR
 
 All endpoints except the agent card require an `Authorization: Bearer <token>` Entra ID access token for the app's API scope.
 
-## Asynchronous ingestion
+## 🧵 Asynchronous ingestion
 
-1. `POST /api/documents` writes the file to the `documents` container with metadata (`ownerOid`, `documentId`, `groupIds`, `originalFilename`) and inserts a `pending` row, then returns `202`.
-2. The `ProcessDocument` **blob trigger** picks the blob up, sets the document to `processing`, extracts text with Document Intelligence, chunks it, generates embeddings and writes chunks + citations to pgvector, then marks the document `completed` (or `failed` with an error message).
-3. The trigger runs under the app identity but re-establishes the **owner's** RLS context from blob metadata, so nothing bypasses row-level security.
+1. `POST /api/documents` inserts a `pending` row first (so the row exists before processing can pick it up), uploads the blob, then sends a `DocumentProcessingMessage` (`documentId`/`ownerOid`/`filename`/`blobName`) to the `document-processing` storage queue, and returns `202`.
+2. A `[QueueTrigger]` — deliberately *not* `[BlobTrigger]` — picks the message up, sets the document to `processing`, extracts text with Document Intelligence, chunks it, generates embeddings and writes chunks + citations to pgvector, then marks the document `completed` (or `failed` with an error message).
+3. It runs under the *app* identity, but reconstructs the **owner's** `UserContext` from the message, so writes still pass owner-scoped RLS. Nothing bypasses row-level security, not even the background worker. 🔁 Reprocessing is idempotent — existing chunks are deleted before new ones are written.
+
+A classic `[BlobTrigger]` was tried first and dropped: its fast path depends on classic Storage Analytics logs, which aren't on by default on new storage accounts, so new blobs could sit undetected for many minutes. The queue trigger is explicit and immediate instead.
 
 The SPA polls `/api/documents` while any document is `pending` or `processing`.
 
-## Chat history
+## 💬 Chat history
 
 - History lives in **Microsoft Foundry conversations** (`/openai/v1/conversations`), persisted in the **customer-managed Cosmos DB** account attached to the Foundry project through a `CosmosDB` connection plus an `Agents` capability host.
-- The capability host's connection set is **atomic**: `threadStorageConnections` (Cosmos DB), `storageConnections` (Blob Storage) and `vectorStoreConnections` (**Azure AI Search**) must all be supplied together, or the control plane rejects the configuration with `Invalid connections configuration received. All connections must be provided, else omitted.` That is why an Azure AI Search service is deployed even though document retrieval is served entirely by **pgvector** — the Search instance only backs the agent runtime's own vector store and stays idle in this solution. It defaults to the cheapest usable tier; override with `azd env set SEARCH_SKU standard`.
+- The capability host's connection set is **atomic**: `threadStorageConnections` (Cosmos DB), `storageConnections` (Blob Storage) and `vectorStoreConnections` (**Azure AI Search**) must all be supplied together, or the control plane rejects the configuration. That's why an Azure AI Search service is deployed even though document retrieval is served entirely by **pgvector** — Search only backs the agent runtime's own vector store and otherwise stays idle. It defaults to the cheapest usable tier; override with `azd env set SEARCH_SKU standard`.
 - An **Azure Table** (`conversations`, `PartitionKey` = user object id) indexes each user's conversation ids and is the authorization boundary: a conversation can only be read, continued or deleted from the owner's partition.
-- If you would rather not pay for Azure AI Search, set `azd env set USE_CUSTOM_FOUNDRY_STORAGE false` to fall back to Microsoft-managed thread storage; the Cosmos DB, Storage and Search connections and the capability hosts are then skipped entirely.
+- Not ready to pay for Azure AI Search? `azd env set USE_CUSTOM_FOUNDRY_STORAGE false` falls back to Microsoft-managed thread storage; Cosmos, Storage and Search connections and the capability hosts are skipped entirely.
 
-## Web application
+## 🌐 Web application
 
 `src/web` is a React + Vite + TypeScript SPA deployed to **Azure Static Web Apps** (Standard SKU):
 
 - **Sign-in** uses Static Web Apps' built-in Entra ID authentication (`/.auth/login/aad`), and every route requires an authenticated user (`staticwebapp.config.template.json`).
-- Static Web Apps does not surface downstream API tokens through `/.auth/me`, so the SPA additionally uses **MSAL** silent SSO to acquire an access token for `api://<client-id>/access_as_user` before calling the Function App.
-- `npm run build` runs `scripts/generate-config.mjs`, which materializes `public/config.json` (API base URL, tenant id, client id, API scope) and `public/staticwebapp.config.json` from the azd environment. Both generated files are git-ignored.
+- Static Web Apps doesn't surface downstream API tokens through `/.auth/me`, so the SPA additionally uses **MSAL** silent SSO to acquire an access token for `api://<client-id>/access_as_user` before calling the Function App.
+- `npm run build` runs `scripts/generate-config.mjs`, which materializes `public/config.json` and `public/staticwebapp.config.json` from the azd environment. Both generated files are git-ignored.
 - The app registration needs the Static Web App origin registered as an **SPA redirect URI**, and a **client secret** for the SWA auth provider (`azd env set AUTH_CLIENT_SECRET <secret>`).
 
-## Row-level security model
+## 🧠 The row-level security model (the actual Cerebro)
 
 - `documents.owner_oid` = uploader's Entra object id; `document_acl` holds Entra **group** object ids a document is shared with.
-- Per request the app opens a transaction and runs `SET LOCAL app.user_oid / app.groups` with the validated token claims; the database connection uses a **non-privileged role**, so PostgreSQL RLS policies filter every query — including vector similarity search.
+- Per request the app opens a transaction and runs `SET LOCAL app.user_oid / app.groups` with the validated token claims. The database connection uses a **non-privileged role**, so `FORCE ROW LEVEL SECURITY` policies filter *every* query — including vector similarity search. There is no separate "can this user see this chunk" check anywhere in application code, because there doesn't need to be.
 
-## Deployment
+## 🚀 Deployment
 
 ### 1. Prerequisites
 
@@ -96,7 +114,7 @@ The SPA polls `/api/documents` while any document is `pending` or `processing`.
 ### 2. One-shot setup
 
 ```powershell
-./scripts/setup.ps1 -EnvironmentName rag-dev
+./scripts/setup.ps1 -EnvironmentName cerebro-dev
 ```
 
 That single script does everything:
@@ -125,13 +143,13 @@ Default location is **`swedencentral`** (PostgreSQL Flexible Server capacity is 
 <summary>Running the steps manually</summary>
 
 ```powershell
-azd env new rag-dev
-./scripts/setup-app-registration.ps1 -DisplayName rag-dev -ApplyToAzdEnv
+azd env new cerebro-dev
+./scripts/setup-app-registration.ps1 -DisplayName cerebro-dev -ApplyToAzdEnv
 azd env set POSTGRES_ENTRA_ADMIN_OBJECT_ID (az ad signed-in-user show --query id -o tsv)
 azd env set POSTGRES_ENTRA_ADMIN_PRINCIPAL_NAME (az ad signed-in-user show --query userPrincipalName -o tsv)
 azd env set PUBLIC_NETWORK_ACCESS Disabled   # Enabled for dev/test
 azd up
-./scripts/setup-app-registration.ps1 -DisplayName rag-dev -StaticWebAppHostname (azd env get-value STATIC_WEB_APP_URL) -SkipSecret
+./scripts/setup-app-registration.ps1 -DisplayName cerebro-dev -StaticWebAppHostname (azd env get-value STATIC_WEB_APP_URL) -SkipSecret
 azd deploy web
 ```
 
@@ -154,7 +172,7 @@ This creates the function app's managed-identity role (`pgaadauth_create_princip
 ### 4. Tear down
 
 ```powershell
-./scripts/teardown.ps1 -EnvironmentName rag-dev -DeleteAppRegistration
+./scripts/teardown.ps1 -EnvironmentName cerebro-dev -DeleteAppRegistration
 ```
 
 Resource names are derived from `uniqueString(subscription().id, environmentName)`, so redeploying under the same environment name reuses the same names. Key Vault and the Foundry account are only *soft*-deleted, and their tombstones then collide with the new deployment (`a resource with this name already exists or is in a conflicting state`). The script therefore runs `azd down --force --purge`, which purges them so the names are immediately reusable.
@@ -163,9 +181,9 @@ It also cleans up the two things `azd down` cannot: the Entra ID app registratio
 
 Plain `azd down --force --purge` works too if you only care about the Azure resources.
 
-## Agent-to-agent (A2A) with on-behalf-of
+## 🤝 Agent-to-agent (A2A) with on-behalf-of
 
-Partner agents discover this agent via `GET /.well-known/agent-card.json`. The card advertises an OAuth2 security scheme: callers must present a token **for the end user**, so RLS applies to that user — never to the calling app.
+Partner agents discover this agent via `GET /.well-known/agent-card.json`. The card advertises an OAuth2 security scheme: callers must present a token **for the end user**, so RLS applies to *that user* — never to the calling app. Cerebro doesn't care who's driving; it only reads the signature of the person in the chair.
 
 A partner agent that received a user token for *its own* API exchanges it using the **OBO grant**:
 
@@ -194,7 +212,7 @@ await http.PostAsJsonAsync("https://<function-app>/api/a2a", new
 
 Requirement: the partner agent's app registration must have **delegated permission** to this API's `access_as_user` scope (admin-consented).
 
-## Local development
+## 🛠️ Local development
 
 ```bash
 cd src/RagApp.Functions
@@ -217,9 +235,9 @@ npm run dev
 
 > **Windows note:** the Functions worker SDK generates a nested `WorkerExtensions` project whose own build output adds roughly 120 characters to the path. On a deep checkout this used to exceed `MAX_PATH` and fail with `MSB3030` (`Could not copy ... because it was not found`). `RagApp.Functions.csproj` now redirects that generated project to `%LOCALAPPDATA%\FuncWorkerExt\<project>\<configuration>` whenever the project directory is longer than 60 characters, so the build works from any path. Enabling Win32 long paths is still worthwhile for other tooling.
 
-## Security notes
+## 🛡️ Security notes
 
-- All data-plane access uses the function app's **system-assigned managed identity** (Blob Data Owner, Queue/Table Data Contributor for the blob trigger and conversation index, Cognitive Services OpenAI User, Cognitive Services User, Key Vault Secrets User, App Configuration Data Reader; Entra-native PostgreSQL role).
+- All data-plane access uses the function app's **system-assigned managed identity** (Blob Data Owner, Queue/Table Data Contributor for the queue trigger and conversation index, Cognitive Services OpenAI User, Cognitive Services User, Key Vault Secrets User, App Configuration Data Reader; Entra-native PostgreSQL role).
 - The Foundry project identity gets Cosmos DB Operator + built-in Cosmos data contributor, Storage Blob Data Contributor, and Search Index Data Contributor + Search Service Contributor so agent conversations persist to your own accounts; Cosmos and Azure AI Search local auth are disabled and both are reached over Entra only.
 - Conversation ownership is enforced by the Azure Table index, so Foundry conversation ids are never usable across users (including through the A2A `contextId`).
 - `disableLocalAuth` is set on Foundry and App Configuration; storage blob public access is off.

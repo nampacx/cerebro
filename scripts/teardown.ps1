@@ -16,15 +16,15 @@ What it does, in order:
      setup.ps1 run cannot reuse a stale client id or secret.
 
 .EXAMPLE
-./scripts/teardown.ps1 -EnvironmentName rag-dev
+./scripts/teardown.ps1 -EnvironmentName cerebro-dev
 
 .EXAMPLE
 # Also remove the Entra app registration created by setup.ps1.
-./scripts/teardown.ps1 -EnvironmentName rag-dev -DeleteAppRegistration
+./scripts/teardown.ps1 -EnvironmentName cerebro-dev -DeleteAppRegistration
 
 .EXAMPLE
 # Remove the azd environment definition as well, so nothing local is left behind.
-./scripts/teardown.ps1 -EnvironmentName rag-dev -DeleteAppRegistration -DeleteAzdEnvironment
+./scripts/teardown.ps1 -EnvironmentName cerebro-dev -DeleteAppRegistration -DeleteAzdEnvironment
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
