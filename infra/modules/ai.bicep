@@ -8,6 +8,8 @@ param privateEndpointSubnetId string
 param cognitiveServicesDnsZoneId string
 param openAiDnsZoneId string
 param aiServicesDnsZoneId string
+@description('Resource id of the delegated (Microsoft.App/environments) subnet the Agents capability host injects its agent client into, so calls to the BYO Cosmos/Storage/Search connections stay on the VNet. Required: without it, those calls leave over the public internet and are rejected once the BYO resources go private (see cosmos.bicep).')
+param agentSubnetId string
 
 param chatModelDeploymentName string = 'gpt-5'
 param chatModelName string = 'gpt-5'
@@ -46,6 +48,18 @@ resource account 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
     networkAcls: {
       defaultAction: publicNetworkAccess == 'Disabled' ? 'Deny' : 'Allow'
     }
+    // Injects the Agents capability host's agent client into the VNet so its outbound calls to
+    // the BYO Cosmos/Storage/Search connections travel over the private endpoints instead of
+    // the public internet. Confirmed necessary: Cosmos DB rejected those calls once its private
+    // endpoint was in place, even with publicNetworkAccess=Enabled and no IP/VNet rules, because
+    // its "thin client" data plane enforces network rules more strictly once any private
+    // endpoint exists - this account has to actually be on the VNet, not just publicly allowed.
+    networkInjections: [
+      {
+        scenario: 'agent'
+        subnetArmId: agentSubnetId
+      }
+    ]
   }
 }
 
@@ -70,11 +84,11 @@ var searchServiceName = empty(searchServiceId) ? '' : last(split(searchServiceId
 // present before any of the connections or capability hosts are created.
 var byoStorage = useCustomFoundryStorage && !empty(cosmosAccountId) && !empty(storageAccountId) && !empty(searchServiceId)
 
-resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' existing = if (byoStorage) {
+resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2026-03-15' existing = if (byoStorage) {
   name: byoStorage ? cosmosAccountName : 'placeholder'
 }
 
-resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing = if (byoStorage) {
+resource storageAccount 'Microsoft.Storage/storageAccounts@2025-08-01' existing = if (byoStorage) {
   name: byoStorage ? storageAccountName : 'placeholder'
 }
 

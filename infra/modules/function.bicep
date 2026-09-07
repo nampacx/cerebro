@@ -14,11 +14,11 @@ param additionalAppSettings object = {}
 @description('Origins allowed to call the Function App (the Static Web App hostname).')
 param allowedCorsOrigins array = []
 
-resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
+resource storageAccount 'Microsoft.Storage/storageAccounts@2025-08-01' existing = {
   name: storageAccountName
 }
 
-resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
+resource plan 'Microsoft.Web/serverfarms@2025-03-01' = {
   name: planName
   location: location
   tags: tags
@@ -56,7 +56,7 @@ var additionalSettingsArray = [
   }
 ]
 
-resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
+resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
   name: functionAppName
   location: location
   tags: tags
@@ -68,7 +68,10 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
     serverFarmId: plan.id
     httpsOnly: true
     virtualNetworkSubnetId: appIntegrationSubnetId
-    vnetRouteAllEnabled: true
+    // Renamed from vnetRouteAllEnabled, removed in this API version.
+    outboundVnetRouting: {
+      applicationTraffic: true
+    }
     siteConfig: {
       netFrameworkVersion: 'v10.0'
       use32BitWorkerProcess: false
@@ -83,7 +86,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
   }
 }
 
-resource authSettings 'Microsoft.Web/sites/config@2024-04-01' = if (!empty(authClientId)) {
+resource authSettings 'Microsoft.Web/sites/config@2025-03-01' = if (!empty(authClientId)) {
   parent: functionApp
   name: 'authsettingsV2'
   properties: {

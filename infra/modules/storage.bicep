@@ -16,7 +16,7 @@ param conversationsTableName string = 'conversations'
 @description('Queue carrying ingestion context (owner, document id, blob name) from the upload endpoint to the document-processing function. Must match the literal queue name in ProcessDocumentFunction\'s [QueueTrigger].')
 param documentProcessingQueueName string = 'document-processing'
 
-resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+resource storageAccount 'Microsoft.Storage/storageAccounts@2025-08-01' = {
   name: storageAccountName
   location: location
   tags: tags
@@ -36,12 +36,12 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   }
 }
 
-resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2025-08-01' = {
   parent: storageAccount
   name: 'default'
 }
 
-resource documentsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+resource documentsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2025-08-01' = {
   parent: blobService
   name: documentsContainerName
   properties: {
@@ -49,7 +49,7 @@ resource documentsContainer 'Microsoft.Storage/storageAccounts/blobServices/cont
   }
 }
 
-resource deploymentsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+resource deploymentsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2025-08-01' = {
   parent: blobService
   name: 'app-package-deployments'
   properties: {
@@ -57,22 +57,22 @@ resource deploymentsContainer 'Microsoft.Storage/storageAccounts/blobServices/co
   }
 }
 
-resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2023-05-01' = {
+resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2025-08-01' = {
   parent: storageAccount
   name: 'default'
 }
 
-resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2023-05-01' = {
+resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2025-08-01' = {
   parent: storageAccount
   name: 'default'
 }
 
-resource queueService 'Microsoft.Storage/storageAccounts/queueServices@2023-05-01' = {
+resource queueService 'Microsoft.Storage/storageAccounts/queueServices@2025-08-01' = {
   parent: storageAccount
   name: 'default'
 }
 
-resource documentProcessingQueue 'Microsoft.Storage/storageAccounts/queueServices/queues@2023-05-01' = {
+resource documentProcessingQueue 'Microsoft.Storage/storageAccounts/queueServices/queues@2025-08-01' = {
   parent: queueService
   name: documentProcessingQueueName
 }
@@ -80,12 +80,12 @@ resource documentProcessingQueue 'Microsoft.Storage/storageAccounts/queueService
 // WEBSITE_CONTENTOVERVNET=1 routes the content share mount through the VNet, and in that
 // mode the Functions platform cannot create the share on its own. Without it the app never
 // mounts C:\home, which surfaces as Kudu returning 500s and the app hanging.
-resource contentShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-05-01' = {
+resource contentShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2025-08-01' = {
   parent: fileService
   name: contentShareName
 }
 
-resource conversationsTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
+resource conversationsTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2025-08-01' = {
   parent: tableService
   name: conversationsTableName
 }

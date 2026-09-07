@@ -11,7 +11,7 @@ param publicNetworkAccess string = 'Disabled'
 param privateEndpointSubnetId string
 param searchDnsZoneId string
 
-resource search 'Microsoft.Search/searchServices@2024-06-01-preview' = {
+resource search 'Microsoft.Search/searchServices@2025-05-01' = {
   name: searchServiceName
   location: location
   tags: tags
@@ -24,7 +24,7 @@ resource search 'Microsoft.Search/searchServices@2024-06-01-preview' = {
   properties: {
     replicaCount: 1
     partitionCount: 1
-    hostingMode: 'default'
+    hostingMode: 'Default'
     semanticSearch: 'disabled'
     disableLocalAuth: disableLocalAuth
     authOptions: disableLocalAuth ? null : { aadOrApiKey: { aadAuthFailureMode: 'http401WithBearerChallenge' } }

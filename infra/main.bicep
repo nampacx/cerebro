@@ -190,6 +190,7 @@ module ai 'modules/ai.bicep' = {
     projectName: 'rag-project'
     publicNetworkAccess: publicNetworkAccess
     privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
+    agentSubnetId: network.outputs.agentSubnetId
     cognitiveServicesDnsZoneId: network.outputs.cognitiveServicesDnsZoneId
     openAiDnsZoneId: network.outputs.openAiDnsZoneId
     aiServicesDnsZoneId: network.outputs.aiServicesDnsZoneId
@@ -306,6 +307,7 @@ module foundryCapabilityHosts 'modules/foundry-caphost.bicep' = if (byoFoundrySt
     cosmosConnectionName: ai.outputs.cosmosConnectionName
     storageConnectionName: ai.outputs.storageConnectionName
     searchConnectionName: ai.outputs.searchConnectionName
+    agentSubnetId: network.outputs.agentSubnetId
   }
   dependsOn: [rbac]
 }

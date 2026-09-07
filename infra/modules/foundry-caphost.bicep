@@ -7,6 +7,8 @@ param cosmosConnectionName string
 param storageConnectionName string
 @description('Name of the project connection to the Azure AI Search service used for the agent vector store.')
 param searchConnectionName string
+@description('Resource id of the delegated (Microsoft.App/environments) subnet the account is injected into (ai.bicep\'s networkInjections). Only the account-level capability host takes this explicitly - it must match the subnet recorded on the account, or the resource provider rejects the update. The project-level capability host inherits the subnet from the account automatically and rejects the property outright ("CapabilityHost for Project cannot be created with Subnet").')
+param agentSubnetId string
 
 resource account 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' existing = {
   name: accountName
@@ -22,6 +24,7 @@ resource accountCapabilityHost 'Microsoft.CognitiveServices/accounts/capabilityH
   name: '${accountName}-caphost'
   properties: {
     capabilityHostKind: 'Agents'
+    customerSubnet: agentSubnetId
   }
 }
 

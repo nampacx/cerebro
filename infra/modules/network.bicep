@@ -20,7 +20,7 @@ var privateDnsZoneNames = [
   'privatelink.file.${environment().suffixes.storage}'
 ]
 
-resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
+resource vnet 'Microsoft.Network/virtualNetworks@2025-07-01' = {
   name: vnetName
   location: location
   tags: tags
@@ -50,10 +50,29 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
           privateEndpointNetworkPolicies: 'Disabled'
         }
       }
+      {
+        // Delegated so the Foundry Agents capability host can inject its agent client here;
+        // this is what lets outbound calls to the BYO Cosmos/Storage/Search connections stay
+        // on the VNet instead of leaving over the public internet. Sized /24 per Microsoft's
+        // guidance for the Microsoft.App/environments delegation.
+        name: 'snet-agent'
+        properties: {
+          addressPrefix: '10.20.3.0/24'
+          delegations: [
+            {
+              name: 'agent-delegation'
+              properties: {
+                serviceName: 'Microsoft.App/environments'
+              }
+            }
+          ]
+        }
+      }
     ]
   }
 }
 
+// Registered API versions for this type top out at 2024-06-01, unlike virtualNetworks above.
 resource privateDnsZones 'Microsoft.Network/privateDnsZones@2024-06-01' = [
   for zoneName in privateDnsZoneNames: {
     name: zoneName
@@ -79,6 +98,7 @@ resource vnetLinks 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-0
 output vnetId string = vnet.id
 output appIntegrationSubnetId string = vnet.properties.subnets[0].id
 output privateEndpointSubnetId string = vnet.properties.subnets[1].id
+output agentSubnetId string = vnet.properties.subnets[2].id
 output postgresDnsZoneId string = privateDnsZones[0].id
 output blobDnsZoneId string = privateDnsZones[1].id
 output keyVaultDnsZoneId string = privateDnsZones[2].id

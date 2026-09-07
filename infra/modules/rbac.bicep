@@ -24,7 +24,7 @@ var roles = {
   searchServiceContributor: '7ca78c08-252a-4471-8644-bb5ff32d4ba0'
 }
 
-resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
+resource storageAccount 'Microsoft.Storage/storageAccounts@2025-08-01' existing = {
   name: last(split(storageAccountId, '/'))
 }
 
@@ -32,11 +32,11 @@ resource aiAccount 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' exi
   name: last(split(aiAccountId, '/'))
 }
 
-resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+resource keyVault 'Microsoft.KeyVault/vaults@2026-02-01' existing = {
   name: last(split(keyVaultId, '/'))
 }
 
-resource appConfig 'Microsoft.AppConfiguration/configurationStores@2024-05-01' existing = {
+resource appConfig 'Microsoft.AppConfiguration/configurationStores@2024-06-01' existing = {
   name: last(split(appConfigId, '/'))
 }
 
@@ -116,7 +116,7 @@ resource appConfigRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 
 var enableFoundryStorageRoles = !empty(foundryProjectPrincipalId) && !empty(cosmosAccountId)
 
-resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' existing = if (enableFoundryStorageRoles) {
+resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2026-03-15' existing = if (enableFoundryStorageRoles) {
   name: enableFoundryStorageRoles ? last(split(cosmosAccountId, '/')) : 'placeholder'
 }
 
@@ -142,7 +142,7 @@ resource foundryCosmosControlPlaneRole 'Microsoft.Authorization/roleAssignments@
 
 // Cosmos data-plane access uses the account-scoped built-in Data Contributor definition
 // (00000000-...-0002) because local auth is disabled on the account.
-resource foundryCosmosDataRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-11-15' = if (enableFoundryStorageRoles) {
+resource foundryCosmosDataRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2026-03-15' = if (enableFoundryStorageRoles) {
   parent: cosmosAccount
   name: guid(cosmosAccountId, foundryProjectPrincipalId, 'cosmos-data-contributor')
   properties: {
@@ -156,7 +156,7 @@ resource foundryCosmosDataRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAss
 
 var enableFoundrySearchRoles = !empty(foundryProjectPrincipalId) && !empty(searchServiceId)
 
-resource searchService 'Microsoft.Search/searchServices@2024-06-01-preview' existing = if (enableFoundrySearchRoles) {
+resource searchService 'Microsoft.Search/searchServices@2025-05-01' existing = if (enableFoundrySearchRoles) {
   name: enableFoundrySearchRoles ? last(split(searchServiceId, '/')) : 'placeholder'
 }
 

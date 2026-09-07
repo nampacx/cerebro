@@ -4,7 +4,7 @@ param logAnalyticsName string
 param appInsightsName string
 param tags object = {}
 
-resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2025-07-01' = {
   name: logAnalyticsName
   location: location
   tags: tags

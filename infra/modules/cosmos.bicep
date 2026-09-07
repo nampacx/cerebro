@@ -5,10 +5,10 @@ param tags object = {}
 param publicNetworkAccess string = 'Disabled'
 param privateEndpointSubnetId string
 param cosmosDnsZoneId string
-@description('Resource IDs (e.g. the Foundry account) allowed to bypass the IP/VNet firewall. Foundry\'s Agents runtime calls Cosmos from outside this VNet even for BYO thread storage, so it needs an explicit exception rather than broader public access.')
+@description('Resource IDs allowed to bypass the IP/VNet firewall. Not currently used for the Foundry account: Cosmos DB\'s networkAclBypassResourceIds only accepts Synapse Link / Data Factory / Azure ML workspace resource ids, not Cognitive Services accounts (see ai.bicep\'s networkInjections for how Foundry actually reaches this account). Kept as a passthrough for a future Synapse Link scenario.')
 param networkAclBypassResourceIds array = []
 
-resource account 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {
+resource account 'Microsoft.DocumentDB/databaseAccounts@2026-03-15' = {
   name: accountName
   location: location
   tags: tags
@@ -41,11 +41,13 @@ resource account 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {
 
 // Conditional, unlike the other modules' private endpoints: Cosmos DB's newer "thin client"
 // data-plane protocol enforces its network rules more strictly than the classic gateway once
-// *any* private endpoint is approved on the account, blocking Foundry's own (out-of-VNet) calls
-// to this account's BYO thread storage even with publicNetworkAccess=Enabled and no IP/VNet
-// rules. There is no resource-instance bypass for Foundry accounts (networkAclBypassResourceIds
-// is Synapse-Link-only), so when Foundry's conversations API needs to reach this account, the
-// private endpoint has to stay off - confirmed by removing it against the live account.
+// *any* private endpoint is approved on the account - confirmed live, it rejected Foundry's
+// calls even with publicNetworkAccess=Enabled and no IP/VNet rules, because those calls
+// originated outside this VNet. Now that ai.bicep injects the Foundry account's agent client
+// into snet-agent, its calls to this account arrive from inside the VNet and resolve through
+// the private endpoint correctly, so publicNetworkAccess=Disabled (the private-only path) is
+// the fully-supported configuration; Enabled (no PE) remains for environments not using the
+// agent subnet.
 module privateEndpoint 'private-endpoint.bicep' = if (publicNetworkAccess == 'Disabled') {
   name: 'pe-${accountName}'
   params: {

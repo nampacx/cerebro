@@ -14,7 +14,7 @@ param publicNetworkAccess string = 'Disabled'
 param privateEndpointSubnetId string
 param postgresDnsZoneId string
 
-resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
+resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2025-08-01' = {
   name: serverName
   location: location
   tags: tags
@@ -48,7 +48,7 @@ resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   }
 }
 
-resource entraAdmin 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2024-08-01' = {
+resource entraAdmin 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2025-08-01' = {
   parent: server
   name: entraAdminObjectId
   properties: {
@@ -58,7 +58,7 @@ resource entraAdmin 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@20
   }
 }
 
-resource allowedExtensions 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2024-08-01' = {
+resource allowedExtensions 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2025-08-01' = {
   parent: server
   name: 'azure.extensions'
   properties: {
@@ -68,7 +68,7 @@ resource allowedExtensions 'Microsoft.DBforPostgreSQL/flexibleServers/configurat
   dependsOn: [entraAdmin]
 }
 
-resource database 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01' = {
+resource database 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2025-08-01' = {
   parent: server
   name: databaseName
   properties: {

@@ -7,7 +7,7 @@ param groupId string
 param dnsZoneIds array
 param tags object = {}
 
-resource privateEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = {
+resource privateEndpoint 'Microsoft.Network/privateEndpoints@2025-07-01' = {
   name: name
   location: location
   tags: tags
@@ -27,7 +27,7 @@ resource privateEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = {
   }
 }
 
-resource dnsZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-05-01' = {
+resource dnsZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2025-07-01' = {
   parent: privateEndpoint
   name: 'default'
   properties: {
