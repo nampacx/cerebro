@@ -4,6 +4,7 @@ using Azure.Core;
 using Azure.Data.Tables;
 using Azure.Identity;
 using Azure.Storage.Blobs;
+using Azure.Storage.Queues;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.Extensions.Configuration;
@@ -11,11 +12,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using RagApp.Functions.Auth;
+using RagApp.Functions.Middleware;
 using RagApp.Functions.Models;
 using RagApp.Functions.Services;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 builder.ConfigureFunctionsWebApplication();
+builder.UseMiddleware<ExceptionHandlingMiddleware>();
 
 TokenCredential credential = new DefaultAzureCredential();
 
@@ -54,6 +57,11 @@ builder.Services.AddSingleton(sp =>
 {
     var options = sp.GetRequiredService<IOptions<RagOptions>>().Value;
     return new TableServiceClient(new Uri(options.TableEndpoint), credential);
+});
+builder.Services.AddSingleton(sp =>
+{
+    var options = sp.GetRequiredService<IOptions<RagOptions>>().Value;
+    return new QueueServiceClient(new Uri(options.QueueEndpoint), credential);
 });
 
 builder.Services.AddHttpClient<FoundryConversationService>();
