@@ -9,23 +9,23 @@ namespace RagApp.Functions.Functions;
 
 /// <summary>
 /// Chat history endpoints. History itself lives in Microsoft Foundry conversations
-/// (backed by the customer-managed Cosmos DB); the Azure Table index maps users to
-/// their conversation ids and enforces ownership.
+/// (backed by the customer-managed Cosmos DB); the PostgreSQL conversations table maps
+/// users to their conversation ids and enforces ownership via row-level security.
 /// </summary>
 public class ConversationsFunction
 {
     private readonly ITokenValidator _tokenValidator;
     private readonly FoundryConversationService _conversations;
-    private readonly ConversationIndex _index;
+    private readonly PgVectorStore _store;
 
     public ConversationsFunction(
         ITokenValidator tokenValidator,
         FoundryConversationService conversations,
-        ConversationIndex index)
+        PgVectorStore store)
     {
         _tokenValidator = tokenValidator;
         _conversations = conversations;
-        _index = index;
+        _store = store;
     }
 
     [Function("ListConversations")]
@@ -39,7 +39,7 @@ public class ConversationsFunction
             return new UnauthorizedResult();
         }
 
-        return new OkObjectResult(await _index.ListAsync(user.ObjectId, ct));
+        return new OkObjectResult(await _store.ListConversationsAsync(user, ct));
     }
 
     [Function("CreateConversation")]
@@ -62,7 +62,7 @@ public class ConversationsFunction
 
         title = string.IsNullOrWhiteSpace(title) ? "New conversation" : title;
         var conversationId = await _conversations.CreateConversationAsync(user.ObjectId, title, ct);
-        await _index.AddAsync(user.ObjectId, conversationId, title, ct);
+        await _store.AddConversationAsync(user, conversationId, title, ct);
 
         var now = DateTimeOffset.UtcNow;
         return new OkObjectResult(new ConversationSummary(conversationId, title, now, now));
@@ -80,7 +80,7 @@ public class ConversationsFunction
             return new UnauthorizedResult();
         }
 
-        if (!await _index.OwnsAsync(user.ObjectId, id, ct))
+        if (!await _store.OwnsConversationAsync(user, id, ct))
         {
             return new NotFoundObjectResult(new { error = "Conversation not found." });
         }
@@ -101,12 +101,12 @@ public class ConversationsFunction
             return new UnauthorizedResult();
         }
 
-        if (!await _index.OwnsAsync(user.ObjectId, id, ct))
+        if (!await _store.OwnsConversationAsync(user, id, ct))
         {
             return new NotFoundObjectResult(new { error = "Conversation not found." });
         }
 
-        await _index.DeleteAsync(user.ObjectId, id, ct);
+        await _store.DeleteConversationAsync(user, id, ct);
         await _conversations.DeleteConversationAsync(id, ct);
         return new NoContentResult();
     }

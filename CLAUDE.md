@@ -20,15 +20,16 @@ npm run build                 # generate-config + tsc -b + vite build
 ```
 
 ```powershell
-# Full provision + deploy (creates app registration, azd env, runs azd up)
-./scripts/setup.ps1 -EnvironmentName cerebro-dev -PublicNetworkAccess Enabled -InitializeDatabase
+# Full provision + deploy + database schema (creates app registration, azd env, runs azd up)
+./scripts/setup.ps1 -EnvironmentName cerebro-dev
 
 # Redeploy one service after code changes
 azd deploy api
 azd deploy web
 
-# Apply db/schema.sql and create the managed-identity role (needs psql + network access to the server)
-./scripts/setup-database.ps1 -ServerName <psql-server-name> -FunctionAppName <function-app-name>
+# Re-apply db/schema.sql (and the managed-identity role) without touching infra or app code,
+# e.g. after editing the schema. Needs psql on PATH.
+./scripts/setup.ps1 -EnvironmentName cerebro-dev -DatabaseOnly
 ```
 
 There is **no test project, solution file, or linter config** in this repo — `dotnet build` and `tsc -b` are the only automated checks. Don't invent test commands; if verification is needed, say what was and wasn't verified.
@@ -79,6 +80,6 @@ The SPA authenticates twice by necessity ([src/web/src/auth.ts](src/web/src/auth
 ## Gotchas
 
 - **Windows long paths**: the Functions build emits deeply nested `obj/.../WorkerExtensions/...` paths and can fail with `MSB3030` if the repo path is long. Build from a shorter path or enable Win32 long paths.
-- Default `PUBLIC_NETWORK_ACCESS=Disabled` puts every backing service behind private endpoints; `setup-database.ps1` and any local `psql` need `Enabled` or VNet access.
+- Default `PUBLIC_NETWORK_ACCESS=Disabled` puts every backing service behind private endpoints. PostgreSQL is the one that matters for local tooling: `setup.ps1`'s `Initialize-Database` (step 7, also driven by `-DatabaseOnly`) checks the *live* server's current network state, temporarily flips it to `Enabled` with a firewall rule scoped to the caller's IP via `az postgres flexible-server update --public-access`, runs `setup-database.ps1`, then restores `Disabled` in a `finally` block — so `azd up`/`setup.ps1` never leaves the database publicly reachable. The other services (Storage, Search, Key Vault, Cosmos, Foundry) stay private the whole time; the Function App reaches them over its own VNet integration, no toggling needed. Calling `setup-database.ps1` directly still requires `psql` and either `Enabled` or VNet access, same as before.
 - The PostgreSQL admin password is generated inside Bicep from `newGuid()` on **every** `azd up` and stored in Key Vault as `postgres-admin-password`. Pin it with `azd env set POSTGRES_ADMIN_PASSWORD '<value>'` if a stable value is needed.
 - If the Foundry `Agents` capability host fails to deploy in a region, `azd env set USE_CUSTOM_FOUNDRY_STORAGE false` falls back to Microsoft-managed thread storage.
