@@ -11,8 +11,9 @@ namespace RagApp.Functions.Services;
 /// <summary>
 /// Wraps the Microsoft Foundry conversations API, which persists chat history
 /// server-side in the project's customer-managed Cosmos DB (BYO thread storage).
-/// Ownership of a conversation is enforced separately by
-/// <see cref="ConversationIndex"/>, which maps users to conversation ids.
+/// Ownership of a conversation is enforced separately by row-level security on the
+/// PostgreSQL <c>conversations</c> table (see <see cref="PgVectorStore"/>), which maps
+/// users to their conversation ids.
 /// </summary>
 public class FoundryConversationService
 {
