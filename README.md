@@ -17,7 +17,7 @@ That's the whole idea here, minus the psychic helmet. 🪖 Every query against t
 ## 🔍 What it does
 
 - **Azure Database for PostgreSQL Flexible Server** with **pgvector** for chunk + embedding storage, protected by **native PostgreSQL Row-Level Security** (owner + optional Entra ID group sharing)
-- **Microsoft Foundry (Azure AI Foundry)** hosts the chat model (GPT-5 series) and the embedding model
+- **Microsoft Foundry (Azure AI Foundry)** hosts the chat model (currently `gpt-6-luna`, via the Responses API) and the embedding model
 - **Azure Functions (C#, .NET 10 isolated)** backend built on the **Microsoft Agent Framework**
 - **Asynchronous ingestion**: upload → Blob Storage → **queue trigger** → Foundry **Document Intelligence** (`prebuilt-read`) → chunking → embeddings → pgvector with citations
 - **Chat history** in **Microsoft Foundry conversations** (Microsoft-managed thread storage); a PostgreSQL table under RLS maps users to their conversation ids so sessions resume correctly
@@ -35,7 +35,7 @@ flowchart LR
   Q -->|queue trigger| PROC[Async ingestion<br/>read - chunk - embed]
   PROC --> PG[(PostgreSQL<br/>pgvector + RLS)]
   FN -->|retrieval, RLS-scoped| PG
-  FN --> AI[Foundry<br/>GPT-5 + embeddings +<br/>Document Intelligence +<br/>conversations, Microsoft-managed]
+  FN --> AI[Foundry<br/>gpt-6-luna + embeddings +<br/>Document Intelligence +<br/>conversations, Microsoft-managed]
   FN --> KV[Key Vault]
 ```
 
@@ -45,6 +45,7 @@ flowchart LR
 |---|---|
 | `infra/` | Bicep (azd-compatible): PostgreSQL, Foundry, Function App, Static Web App, Key Vault, monitoring |
 | `db/schema.sql` | pgvector schema, tables and row-level security policies — the actual "Cerebro" |
+| `docs/row-level-security.md` | What RLS solves, how it's wired end to end, and a walkthrough demo (Alice uploads, Bob doesn't see it) |
 | `scripts/setup.ps1` | **One-shot setup**: prerequisites, azd environment, app registration, `azd up`, post-deployment redirect URIs and the database |
 | `scripts/setup-app-registration.ps1` | Creates/updates the Entra ID app registration (API scope, groups claim, redirect URIs, client secret) |
 | `scripts/setup-database.ps1` | Creates the managed-identity DB role and applies the schema |
@@ -96,6 +97,8 @@ The SPA polls `/api/documents` while any document is `pending` or `processing`.
 
 - `documents.owner_oid` = uploader's Entra object id; `document_acl` holds Entra **group** object ids a document is shared with.
 - Per request the app opens a transaction and runs `SET LOCAL app.user_oid / app.groups` with the validated token claims. The database connection uses a **non-privileged role**, so `FORCE ROW LEVEL SECURITY` policies filter *every* query — including vector similarity search. There is no separate "can this user see this chunk" check anywhere in application code, because there doesn't need to be.
+
+**[→ Full write-up: what problem this solves, how it's wired end to end, and a step-by-step demo of one user uploading a document and a second user never seeing it](docs/row-level-security.md)**
 
 ## 🚀 Deployment
 
