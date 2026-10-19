@@ -145,9 +145,7 @@ module appConfig 'modules/appconfig.bicep' = {
       { name: 'Rag:PostgresHost', value: postgres.outputs.serverFqdn }
       { name: 'Rag:PostgresDatabase', value: postgres.outputs.databaseName }
       { name: 'Rag:BlobEndpoint', value: storage.outputs.blobEndpoint }
-      { name: 'Rag:TableEndpoint', value: storage.outputs.tableEndpoint }
       { name: 'Rag:QueueEndpoint', value: storage.outputs.queueEndpoint }
-      { name: 'Rag:ConversationsTable', value: storage.outputs.conversationsTableName }
       { name: 'Rag:DocumentsContainer', value: storage.outputs.documentsContainerName }
       { name: 'Rag:DocumentProcessingQueue', value: storage.outputs.documentProcessingQueueName }
       { name: 'Rag:ChunkSizeTokens', value: '512' }
@@ -232,8 +230,6 @@ output AI_FOUNDRY_ENDPOINT string = ai.outputs.endpoint
 output OPENAI_ENDPOINT string = ai.outputs.openAiEndpoint
 output DOCUMENT_INTELLIGENCE_ENDPOINT string = ai.outputs.documentIntelligenceEndpoint
 output STORAGE_BLOB_ENDPOINT string = storage.outputs.blobEndpoint
-output STORAGE_TABLE_ENDPOINT string = storage.outputs.tableEndpoint
-output CONVERSATIONS_TABLE string = storage.outputs.conversationsTableName
 output STATIC_WEB_APP_NAME string = staticWebApp.outputs.staticWebAppName
 output STATIC_WEB_APP_URL string = staticWebApp.outputs.staticWebAppUrl
 output WEB_API_BASE_URL string = functionAppUrl

@@ -51,6 +51,19 @@ CREATE INDEX IF NOT EXISTS idx_chunks_embedding ON chunks
     USING hnsw (embedding vector_cosine_ops);
 CREATE INDEX IF NOT EXISTS idx_document_acl_group ON document_acl(group_oid);
 
+-- Chat history lives in Foundry conversations (BYO Cosmos DB thread storage); this table is
+-- purely the authorization index mapping users to their conversation ids, replacing the
+-- former Azure Table index. id is the Foundry conversation id, not a local uuid.
+CREATE TABLE IF NOT EXISTS conversations (
+    id          text        PRIMARY KEY,
+    owner_oid   text        NOT NULL,
+    title       text        NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_owner ON conversations(owner_oid, updated_at DESC);
+
 -- ---------------------------------------------------------------------------
 -- Row-Level Security
 -- The app sets, per transaction:
@@ -70,6 +83,8 @@ ALTER TABLE chunks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chunks FORCE ROW LEVEL SECURITY;
 ALTER TABLE document_acl ENABLE ROW LEVEL SECURITY;
 ALTER TABLE document_acl FORCE ROW LEVEL SECURITY;
+ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversations FORCE ROW LEVEL SECURITY;
 
 -- Documents: owner or member of a group in the ACL.
 DROP POLICY IF EXISTS documents_select ON documents;
@@ -162,9 +177,17 @@ CREATE POLICY chunks_delete ON chunks FOR DELETE
           AND d.owner_oid = app_current_user_oid()
     ));
 
+-- Conversations: owner only, never shared - no group-ACL table like documents has, so a
+-- single FOR ALL policy is sufficient (no recursive-reference concern like document_acl's,
+-- see the comment above document_acl_select).
+DROP POLICY IF EXISTS conversations_owner ON conversations;
+CREATE POLICY conversations_owner ON conversations FOR ALL
+    USING (owner_oid = app_current_user_oid())
+    WITH CHECK (owner_oid = app_current_user_oid());
+
 -- ---------------------------------------------------------------------------
 -- Grants for the application role (created by scripts/setup-database.ps1 with
 -- the function app's managed identity name). Replace :app_role when running manually.
 -- ---------------------------------------------------------------------------
 -- GRANT USAGE ON SCHEMA public TO "<function-app-name>";
--- GRANT SELECT, INSERT, UPDATE, DELETE ON documents, document_acl, chunks TO "<function-app-name>";
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON documents, document_acl, chunks, conversations TO "<function-app-name>";

@@ -1,7 +1,6 @@
 using Azure.AI.DocumentIntelligence;
 using Azure.AI.OpenAI;
 using Azure.Core;
-using Azure.Data.Tables;
 using Azure.Identity;
 using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
@@ -56,11 +55,6 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddSingleton(sp =>
 {
     var options = sp.GetRequiredService<IOptions<RagOptions>>().Value;
-    return new TableServiceClient(new Uri(options.TableEndpoint), credential);
-});
-builder.Services.AddSingleton(sp =>
-{
-    var options = sp.GetRequiredService<IOptions<RagOptions>>().Value;
     return new QueueServiceClient(new Uri(options.QueueEndpoint), credential);
 });
 
@@ -72,7 +66,6 @@ builder.Services.AddSingleton<ChunkingService>();
 builder.Services.AddSingleton<EmbeddingService>();
 builder.Services.AddSingleton<DocumentUploadService>();
 builder.Services.AddSingleton<DocumentProcessingService>();
-builder.Services.AddSingleton<ConversationIndex>();
 builder.Services.AddSingleton<RagAgentService>();
 builder.Services.AddSingleton<ChatOrchestrator>();
 

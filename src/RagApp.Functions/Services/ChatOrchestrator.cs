@@ -11,16 +11,16 @@ public class ChatOrchestrator
 {
     private readonly RagAgentService _agentService;
     private readonly FoundryConversationService _conversations;
-    private readonly ConversationIndex _index;
+    private readonly PgVectorStore _store;
 
     public ChatOrchestrator(
         RagAgentService agentService,
         FoundryConversationService conversations,
-        ConversationIndex index)
+        PgVectorStore store)
     {
         _agentService = agentService;
         _conversations = conversations;
-        _index = index;
+        _store = store;
     }
 
     public async Task<ChatResponse> HandleAsync(
@@ -30,8 +30,8 @@ public class ChatOrchestrator
 
         if (!string.IsNullOrWhiteSpace(conversationId))
         {
-            // Ownership check: the Table index is the authorization boundary.
-            if (!await _index.OwnsAsync(user.ObjectId, conversationId, ct))
+            // Ownership check: RLS on the conversations table is the authorization boundary.
+            if (!await _store.OwnsConversationAsync(user, conversationId, ct))
             {
                 throw new UnauthorizedAccessException("Conversation not found for this user.");
             }
@@ -42,7 +42,7 @@ public class ChatOrchestrator
         {
             var title = message.Length > 60 ? message[..60] + "…" : message;
             conversationId = await _conversations.CreateConversationAsync(user.ObjectId, title, ct);
-            await _index.AddAsync(user.ObjectId, conversationId, title, ct);
+            await _store.AddConversationAsync(user, conversationId, title, ct);
         }
 
         var response = await _agentService.AskAsync(user, message, topK, history, conversationId, ct);
@@ -52,7 +52,7 @@ public class ChatOrchestrator
             new ConversationMessage("user", message, DateTimeOffset.UtcNow),
             new ConversationMessage("assistant", response.Answer, DateTimeOffset.UtcNow)
         ], ct);
-        await _index.TouchAsync(user.ObjectId, conversationId, null, ct);
+        await _store.TouchConversationAsync(user, conversationId, null, ct);
 
         return response;
     }

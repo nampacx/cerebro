@@ -10,8 +10,8 @@ That's the whole idea here, minus the psychic helmet. 🪖 Every query against t
 
 - 🔒 **RLS is the only ACL.** There is no parallel "check permissions in code" path — retrieval, listing, chat, all go through the same PostgreSQL policies. If a query bypasses `SetUserContextAsync`, it returns *zero rows*, never *someone else's* rows. This is the access-control boundary — not network isolation. Every backing service is publicly reachable; what a caller can *see* is decided entirely by the database.
 - 🪪 **Entra ID end-to-end.** The same `oid`/`groups` claims that get a user through the front door are what the database reads to decide what they can see. Identity doesn't get translated or re-derived anywhere in between.
-- 🧵 **Foundry owns its own chat storage.** Conversation threads live in Foundry's Microsoft-managed thread storage, not a bring-your-own Cosmos DB account this stack would otherwise have to provision and secure. The Azure Table ownership index — not where the bytes sit — is what actually keeps one user's conversations away from another's.
-- 🏗️ **Managed identity everywhere.** The app talks to Postgres, Blob/Queue/Table, Key Vault, App Configuration and Foundry as itself — no connection strings, no secrets sitting in config waiting to leak.
+- 🧵 **Foundry owns its own chat storage.** Conversation threads live in Foundry's Microsoft-managed thread storage, not a bring-your-own Cosmos DB account this stack would otherwise have to provision and secure. The PostgreSQL conversation ownership table under RLS — not where the bytes sit — is what actually keeps one user's conversations away from another's.
+- 🏗️ **Managed identity everywhere.** The app talks to Postgres, Blob/Queue, Key Vault, App Configuration and Foundry as itself — no connection strings, no secrets sitting in config waiting to leak.
 - ⚡ **Solution accelerator, not a framework.** This is meant to be forked, read end-to-end, and adapted — not installed as a dependency.
 
 ## 🔍 What it does
@@ -20,7 +20,7 @@ That's the whole idea here, minus the psychic helmet. 🪖 Every query against t
 - **Microsoft Foundry (Azure AI Foundry)** hosts the chat model (GPT-5 series) and the embedding model
 - **Azure Functions (C#, .NET 10 isolated)** backend built on the **Microsoft Agent Framework**
 - **Asynchronous ingestion**: upload → Blob Storage → **queue trigger** → Foundry **Document Intelligence** (`prebuilt-read`) → chunking → embeddings → pgvector with citations
-- **Chat history** in **Microsoft Foundry conversations** (Microsoft-managed thread storage); an Azure Table maps users to their conversation ids so sessions resume correctly
+- **Chat history** in **Microsoft Foundry conversations** (Microsoft-managed thread storage); a PostgreSQL table under RLS maps users to their conversation ids so sessions resume correctly
 - **Azure Static Web App** (React + Vite) example client with document upload, status tracking and a chat UI with conversation history
 - **Entra ID authorization** end to end — the caller's `oid`/`groups` claims drive RLS on every retrieval
 - **A2A**: agent card + JSON-RPC endpoint, including the **on-behalf-of (OBO)** flow so partner agents act *as the end user*, never as themselves
@@ -35,7 +35,6 @@ flowchart LR
   Q -->|queue trigger| PROC[Async ingestion<br/>read - chunk - embed]
   PROC --> PG[(PostgreSQL<br/>pgvector + RLS)]
   FN -->|retrieval, RLS-scoped| PG
-  FN --> TBL[(Azure Table<br/>conversation index)]
   FN --> AI[Foundry<br/>GPT-5 + embeddings +<br/>Document Intelligence +<br/>conversations, Microsoft-managed]
   FN --> KV[Key Vault]
   FN --> CFG[App Configuration]
@@ -47,7 +46,7 @@ flowchart LR
 |---|---|
 | `infra/` | Bicep (azd-compatible): PostgreSQL, Foundry, Function App, Static Web App, Key Vault, App Configuration, monitoring |
 | `db/schema.sql` | pgvector schema, tables and row-level security policies — the actual "Cerebro" |
-| `scripts/setup.ps1` | **One-shot setup**: prerequisites, azd environment, app registration, `azd up`, post-deployment redirect URIs and (optionally) the database |
+| `scripts/setup.ps1` | **One-shot setup**: prerequisites, azd environment, app registration, `azd up`, post-deployment redirect URIs and the database |
 | `scripts/setup-app-registration.ps1` | Creates/updates the Entra ID app registration (API scope, groups claim, redirect URIs, client secret) |
 | `scripts/setup-database.ps1` | Creates the managed-identity DB role and applies the schema |
 | `scripts/teardown.ps1` | **One-shot teardown**: `azd down --force --purge` plus the app registration and stale azd values that `azd down` leaves behind |
@@ -83,7 +82,7 @@ The SPA polls `/api/documents` while any document is `pending` or `processing`.
 ## 💬 Chat history
 
 - History lives in **Microsoft Foundry conversations** (`/openai/v1/conversations`), persisted in Foundry's own **Microsoft-managed thread storage**. There is no customer-managed Cosmos DB or Azure AI Search to provision, secure or pay for — one less set of accounts and RBAC assignments to operate, and retrieval is served entirely by **pgvector** regardless.
-- An **Azure Table** (`conversations`, `PartitionKey` = user object id) indexes each user's conversation ids and is the authorization boundary: a conversation can only be read, continued or deleted from the owner's partition. This is unrelated to where Foundry stores the actual message bytes — it's what stops one user from reading another's conversation by id.
+- The PostgreSQL **`conversations` table** indexes each user's conversation ids and is the authorization boundary: row-level security restricts listing, reading, continuing and deleting conversations to their owner. This is unrelated to where Foundry stores the actual message bytes — it's what stops one user from reading another's conversation by id.
 
 ## 🌐 Web application
 
@@ -120,13 +119,14 @@ That single script does everything:
 4. Sets the remaining azd settings (PostgreSQL Entra admin, location). **No password is set** — the PostgreSQL admin password is generated inside Bicep and stored in Key Vault as `postgres-admin-password`.
 5. Runs `azd up` (provision + deploy).
 6. Registers the deployed Static Web App origin on the app registration and redeploys the web client so `config.json` picks up the final values.
-7. Optionally initializes the database (`-InitializeDatabase`).
+7. Initializes the database (requires `psql`; skip with `-SkipDatabaseInit`).
 
 Useful switches:
 
 | Switch | Purpose |
 |---|---|
-| `-InitializeDatabase` | Also run `setup-database.ps1` after deployment (requires `psql`) |
+| `-SkipDatabaseInit` | Skip database initialization after deployment |
+| `-DatabaseOnly` | Re-apply the database schema without provisioning or deploying |
 | `-SkipDeploy` | Only configure the app registration and the azd environment |
 | `-Location` / `-StaticWebAppLocation` | Override the default `swedencentral` / `westeurope` regions |
 | `-AppRegistrationDisplayName` | Name of the Entra app registration (defaults to the environment name) |
@@ -150,12 +150,12 @@ Equivalent portal steps for the app registration: expose an API with scope `acce
 
 </details>
 
-### 3. Initialize the database
+### 3. Re-apply the database schema
 
-The server is publicly reachable, so this can run from any machine with network access to it:
+Setup initializes the database automatically. To re-apply the schema to an existing environment:
 
 ```powershell
-./scripts/setup-database.ps1 -ServerName <psql-server-name> -FunctionAppName <function-app-name>
+./scripts/setup.ps1 -EnvironmentName cerebro-dev -DatabaseOnly
 ```
 
 This creates the function app's managed-identity role (`pgaadauth_create_principal`), applies `db/schema.sql` (tables + RLS policies) and grants least-privilege permissions.
@@ -230,8 +230,8 @@ npm run dev
 
 ## 🛡️ Security notes
 
-- All data-plane access uses the function app's **system-assigned managed identity** (Blob Data Owner, Queue/Table Data Contributor for the queue trigger and conversation index, Cognitive Services OpenAI User, Cognitive Services User, Key Vault Secrets User, App Configuration Data Reader; Entra-native PostgreSQL role). The Foundry project itself holds no extra role assignments — there's no bring-your-own storage account for it to reach.
-- Conversation ownership is enforced by the Azure Table index, so Foundry conversation ids are never usable across users (including through the A2A `contextId`).
+- All data-plane access uses the function app's **system-assigned managed identity** (Blob Data Owner, Queue Data Contributor for the queue trigger, Cognitive Services OpenAI User, Cognitive Services User, Key Vault Secrets User, App Configuration Data Reader; Entra-native PostgreSQL role). The Foundry project itself holds no extra role assignments — there's no bring-your-own storage account for it to reach.
+- Conversation ownership is enforced by PostgreSQL RLS, so Foundry conversation ids are never usable across users (including through the A2A `contextId`).
 - `disableLocalAuth` is set on Foundry and App Configuration; storage blob public access is off.
 - Easy Auth (`authsettingsV2`) rejects unauthenticated requests at the platform edge when `AUTH_CLIENT_ID` is set; the code additionally validates the JWT and extracts `oid`/`groups` for RLS.
 - **No VNet, no private endpoints.** Every backing service (PostgreSQL, Storage, Key Vault, App Configuration and Foundry) deploys with public network access enabled, same as the Function App and the Static Web App. Network isolation is not part of the threat model here — native PostgreSQL row-level security is the access-control boundary, and Easy Auth plus code-level JWT validation protect the Function App's front door.

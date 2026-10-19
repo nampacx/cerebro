@@ -227,5 +227,98 @@ public class PgVectorStore : IAsyncDisposable
         return results;
     }
 
+    /// <summary>Records a new Foundry conversation, or renames an existing one owned by the caller.</summary>
+    public async Task AddConversationAsync(UserContext user, string conversationId, string title, CancellationToken ct = default)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await SetUserContextAsync(conn, tx, user, ct);
+
+        await using var cmd = new NpgsqlCommand(
+            """
+            INSERT INTO conversations (id, owner_oid, title)
+            VALUES (@id, @owner, @title)
+            ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, updated_at = now()
+            """, conn, tx);
+        cmd.Parameters.AddWithValue("id", conversationId);
+        cmd.Parameters.AddWithValue("owner", user.ObjectId);
+        cmd.Parameters.AddWithValue("title", title);
+        await cmd.ExecuteNonQueryAsync(ct);
+
+        await tx.CommitAsync(ct);
+    }
+
+    /// <summary>
+    /// True when a conversation with this id is visible to the caller. This is the
+    /// authorization boundary for chat history - RLS means a row is only visible when
+    /// conversations.owner_oid matches the caller, so this doubles as an existence check:
+    /// another user's conversation id looks identical to a nonexistent one.
+    /// </summary>
+    public async Task<bool> OwnsConversationAsync(UserContext user, string conversationId, CancellationToken ct = default)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await SetUserContextAsync(conn, tx, user, ct);
+
+        await using var cmd = new NpgsqlCommand("SELECT 1 FROM conversations WHERE id = @id", conn, tx);
+        cmd.Parameters.AddWithValue("id", conversationId);
+        return await cmd.ExecuteScalarAsync(ct) is not null;
+    }
+
+    public async Task TouchConversationAsync(UserContext user, string conversationId, string? title = null, CancellationToken ct = default)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await SetUserContextAsync(conn, tx, user, ct);
+
+        await using var cmd = new NpgsqlCommand(
+            """
+            UPDATE conversations
+            SET updated_at = now(), title = COALESCE(@title, title)
+            WHERE id = @id
+            """, conn, tx);
+        cmd.Parameters.AddWithValue("id", conversationId);
+        cmd.Parameters.AddWithValue("title", (object?)title ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync(ct);
+
+        await tx.CommitAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<ConversationSummary>> ListConversationsAsync(UserContext user, CancellationToken ct = default)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await SetUserContextAsync(conn, tx, user, ct);
+
+        await using var cmd = new NpgsqlCommand(
+            "SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC", conn, tx);
+
+        var results = new List<ConversationSummary>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            results.Add(new ConversationSummary(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetFieldValue<DateTimeOffset>(2),
+                reader.GetFieldValue<DateTimeOffset>(3)));
+        }
+
+        return results;
+    }
+
+    public async Task DeleteConversationAsync(UserContext user, string conversationId, CancellationToken ct = default)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await SetUserContextAsync(conn, tx, user, ct);
+
+        await using var cmd = new NpgsqlCommand("DELETE FROM conversations WHERE id = @id", conn, tx);
+        cmd.Parameters.AddWithValue("id", conversationId);
+        await cmd.ExecuteNonQueryAsync(ct);
+
+        await tx.CommitAsync(ct);
+    }
+
     public ValueTask DisposeAsync() => _dataSource.DisposeAsync();
 }

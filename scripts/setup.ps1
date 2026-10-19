@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
 One-shot setup for Cerebro: Entra ID app registration + azd environment
-configuration + provisioning and deployment.
+configuration + provisioning, deployment, and database schema.
 
 What it does, in order:
   1. Verifies prerequisites (az, azd) and that you are signed in to both.
@@ -15,15 +15,23 @@ What it does, in order:
   5. Runs `azd up` (provision + deploy).
   6. Re-runs the app registration step with the deployed Static Web App hostname
      and redeploys the web client so its config picks up the final values.
-  7. Optionally initializes the database: opens the PostgreSQL firewall for this
-     machine, then applies the schema and the managed-identity role.
+  7. Applies the database schema and the managed-identity role, adding a PostgreSQL
+     firewall rule scoped to this machine. Skip with -SkipDatabaseInit.
+
+Pass -DatabaseOnly to skip steps 2-6 entirely and just (re-)apply the database
+schema against an already-provisioned environment - e.g. after editing
+db/schema.sql.
 
 .EXAMPLE
-./scripts/setup.ps1 -EnvironmentName cerebro-dev -InitializeDatabase
+./scripts/setup.ps1 -EnvironmentName cerebro-dev
 
 .EXAMPLE
-# Only refresh the app registration and azd settings, skip deployment.
+# Only refresh the app registration and azd settings, skip deployment and the database.
 ./scripts/setup.ps1 -EnvironmentName cerebro-dev -SkipDeploy
+
+.EXAMPLE
+# Re-apply db/schema.sql against an existing deployment without touching infra or app code.
+./scripts/setup.ps1 -EnvironmentName cerebro-dev -DatabaseOnly
 #>
 [CmdletBinding()]
 param(
@@ -33,13 +41,17 @@ param(
     [string] $AppRegistrationDisplayName,
     [string] $SubscriptionId,
     [string] $LocalDevOrigin = 'http://localhost:5173',
-    [switch] $InitializeDatabase,
-    [switch] $SkipDeploy
+    [switch] $SkipDatabaseInit,
+    [switch] $SkipDeploy,
+    [switch] $DatabaseOnly
 )
 
 $ErrorActionPreference = 'Stop'
 $scriptRoot = $PSScriptRoot
 $repoRoot = Split-Path -Parent $scriptRoot
+
+if ($DatabaseOnly -and $SkipDeploy) { throw '-DatabaseOnly and -SkipDeploy are mutually exclusive.' }
+if ($DatabaseOnly -and $SkipDatabaseInit) { throw '-DatabaseOnly and -SkipDatabaseInit are mutually exclusive.' }
 
 if (-not $AppRegistrationDisplayName) { $AppRegistrationDisplayName = $EnvironmentName }
 
@@ -53,6 +65,43 @@ function Invoke-Checked {
     param([scriptblock] $Command, [string] $What)
     & $Command
     if ($LASTEXITCODE -ne 0) { throw "$What failed (exit code $LASTEXITCODE)." }
+}
+
+function Get-EntraAdminPrincipalName {
+    # Mirrors the PostgreSQL Entra administrator detection below: the server authenticates
+    # against the directory UPN, which differs from the Azure CLI account name for guest users,
+    # and az ad signed-in-user has nothing to return in a service-principal context.
+    $signedInUserJson = az ad signed-in-user show -o json 2>$null
+    $signedInUser = if ($LASTEXITCODE -eq 0 -and $signedInUserJson) { $signedInUserJson | ConvertFrom-Json } else { $null }
+    if ($signedInUser) {
+        if ($signedInUser.userPrincipalName) { return $signedInUser.userPrincipalName }
+        return $signedInUser.displayName
+    }
+    $spAppId = az account show --query 'user.name' -o tsv
+    $sp = az ad sp show --id $spAppId -o json | ConvertFrom-Json
+    return $sp.displayName
+}
+
+function Initialize-Database {
+    param(
+        [string] $ServerName,
+        [string] $Database,
+        [string] $FunctionAppName,
+        [string] $ResourceGroup,
+        [string] $AdminUser
+    )
+
+    if (-not (Get-Command psql -ErrorAction SilentlyContinue)) {
+        Write-Warning "'psql' was not found on PATH; skipping database initialization. Run scripts/setup-database.ps1 manually."
+        return
+    }
+
+    & "$scriptRoot/setup-database.ps1" `
+        -ServerName $ServerName `
+        -Database $Database `
+        -FunctionAppName $FunctionAppName `
+        -AdminUser $AdminUser `
+        -ResourceGroup $ResourceGroup
 }
 
 # ---- 1. Prerequisites -------------------------------------------------------
@@ -84,8 +133,32 @@ try {
         Write-Host "  Reusing existing environment."
         Invoke-Checked { azd env select $EnvironmentName } 'azd env select'
     }
+    elseif ($DatabaseOnly) {
+        throw "azd environment '$EnvironmentName' does not exist. -DatabaseOnly requires an environment that has already been deployed with a full './scripts/setup.ps1 -EnvironmentName $EnvironmentName' run."
+    }
     else {
         Invoke-Checked { azd env new $EnvironmentName --location $Location --subscription $account.id } 'azd env new'
+    }
+
+    if ($DatabaseOnly) {
+        Write-Step "Applying database schema only (environment '$EnvironmentName')"
+        $outputs = azd env get-values -o json | ConvertFrom-Json
+        foreach ($required in @('POSTGRES_SERVER_NAME', 'POSTGRES_DATABASE', 'FUNCTION_APP_NAME', 'AZURE_RESOURCE_GROUP')) {
+            if (-not $outputs.$required) {
+                throw "azd environment '$EnvironmentName' has no '$required' output. Run a full './scripts/setup.ps1 -EnvironmentName $EnvironmentName' first."
+            }
+        }
+
+        Initialize-Database `
+            -ServerName $outputs.POSTGRES_SERVER_NAME `
+            -Database $outputs.POSTGRES_DATABASE `
+            -FunctionAppName $outputs.FUNCTION_APP_NAME `
+            -ResourceGroup $outputs.AZURE_RESOURCE_GROUP `
+            -AdminUser (Get-EntraAdminPrincipalName)
+
+        Write-Host ''
+        Write-Host 'Database schema update complete.' -ForegroundColor Green
+        return
     }
 
     # ---- 3. App registration ------------------------------------------------
@@ -164,25 +237,17 @@ try {
     }
 
     # ---- 7. Database initialization ----------------------------------------
-    if ($InitializeDatabase) {
+    if (-not $SkipDatabaseInit) {
         Write-Step 'Initializing the database'
-        if (-not (Get-Command psql -ErrorAction SilentlyContinue)) {
-            Write-Warning "'psql' was not found on PATH; skipping. Run scripts/setup-database.ps1 manually."
-        }
-        else {
-            # Step 4 registered $adminPrincipalName as the server's Entra administrator.
-            # Left to its own default, setup-database.ps1 would connect as the Azure CLI
-            # account name, which differs for guest users and is rejected at login.
-            # -ResourceGroup lets setup-database.ps1 open the PostgreSQL firewall for this
-            # machine without having to look the group up; -AdminUser keeps the connecting
-            # identity identical to the administrator step 4 registered on the server.
-            & "$scriptRoot/setup-database.ps1" `
-                -ServerName $outputs.POSTGRES_SERVER_NAME `
-                -Database $outputs.POSTGRES_DATABASE `
-                -FunctionAppName $outputs.FUNCTION_APP_NAME `
-                -AdminUser $adminPrincipalName `
-                -ResourceGroup $outputs.AZURE_RESOURCE_GROUP
-        }
+        # Step 4 registered $adminPrincipalName as the server's Entra administrator. Left to
+        # its own default, setup-database.ps1 would connect as the Azure CLI account name,
+        # which differs for guest users and is rejected at login.
+        Initialize-Database `
+            -ServerName $outputs.POSTGRES_SERVER_NAME `
+            -Database $outputs.POSTGRES_DATABASE `
+            -FunctionAppName $outputs.FUNCTION_APP_NAME `
+            -ResourceGroup $outputs.AZURE_RESOURCE_GROUP `
+            -AdminUser $adminPrincipalName
     }
 
     # ---- Summary ------------------------------------------------------------
@@ -193,10 +258,10 @@ try {
     Write-Host "  PostgreSQL    : $($outputs.POSTGRES_FQDN)"
     Write-Host "  Key Vault     : $($outputs.KEY_VAULT_URI)"
     Write-Host "  Admin password: Key Vault secret '$($outputs.POSTGRES_ADMIN_SECRET_NAME)'"
-    if (-not $InitializeDatabase) {
+    if ($SkipDatabaseInit) {
         Write-Host ''
-        Write-Host 'Remaining step - initialize the database from a network that can reach the server:'
-        Write-Host "  ./scripts/setup-database.ps1 -ServerName $($outputs.POSTGRES_SERVER_NAME) -FunctionAppName $($outputs.FUNCTION_APP_NAME)"
+        Write-Host 'Remaining step - apply the database schema:'
+        Write-Host "  ./scripts/setup.ps1 -EnvironmentName $EnvironmentName -DatabaseOnly"
     }
 }
 finally {

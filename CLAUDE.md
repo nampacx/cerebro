@@ -20,15 +20,16 @@ npm run build                 # generate-config + tsc -b + vite build
 ```
 
 ```powershell
-# Full provision + deploy (creates app registration, azd env, runs azd up)
-./scripts/setup.ps1 -EnvironmentName cerebro-dev -InitializeDatabase
+# Full provision + deploy + database schema (creates app registration, azd env, runs azd up)
+./scripts/setup.ps1 -EnvironmentName cerebro-dev
 
 # Redeploy one service after code changes
 azd deploy api
 azd deploy web
 
-# Apply db/schema.sql and create the managed-identity role (needs psql on PATH)
-./scripts/setup-database.ps1 -ServerName <psql-server-name> -FunctionAppName <function-app-name>
+# Re-apply db/schema.sql (and the managed-identity role) without touching infra or app code,
+# e.g. after editing the schema. Needs psql on PATH.
+./scripts/setup.ps1 -EnvironmentName cerebro-dev -DatabaseOnly
 ```
 
 There is **no test project, solution file, or linter config** in this repo — `dotnet build` and `tsc -b` are the only automated checks. Don't invent test commands; if verification is needed, say what was and wasn't verified.
@@ -59,7 +60,7 @@ A classic `[BlobTrigger]` was tried first and dropped: its fast path depends on 
 
 **Chat** goes through [Services/ChatOrchestrator.cs](src/RagApp.Functions/Services/ChatOrchestrator.cs):
 
-- Chat history lives in **Foundry conversations** ([Services/FoundryConversationService.cs](src/RagApp.Functions/Services/FoundryConversationService.cs), raw `/openai/v1/conversations` HTTP calls), persisted in Foundry's own Microsoft-managed thread storage — there is no customer-managed Cosmos DB in this stack. Foundry does **not** enforce per-user ownership — the Azure Table index in [Services/ConversationIndex.cs](src/RagApp.Functions/Services/ConversationIndex.cs) (`PartitionKey` = user oid) is the authorization boundary. Any path that accepts a caller-supplied conversation id must go through `OwnsAsync` first.
+- Chat history lives in **Foundry conversations** ([Services/FoundryConversationService.cs](src/RagApp.Functions/Services/FoundryConversationService.cs), raw `/openai/v1/conversations` HTTP calls), persisted in Foundry's own Microsoft-managed thread storage — there is no customer-managed Cosmos DB in this stack. Foundry does **not** enforce per-user ownership — the PostgreSQL `conversations` table under RLS in [Services/PgVectorStore.cs](src/RagApp.Functions/Services/PgVectorStore.cs) is the authorization boundary. Any path that accepts a caller-supplied conversation id must go through `OwnsConversationAsync` first.
 - [Services/RagAgentService.cs](src/RagApp.Functions/Services/RagAgentService.cs) builds a **per-request** Agent Framework agent. The `search_documents` tool is a local function that closes over the request's `UserContext` and accumulates citations as a side effect — that closure is how user identity reaches retrieval, so the agent cannot be hoisted to a singleton.
 
 **A2A** ([A2A/A2AFunctions.cs](src/RagApp.Functions/A2A/A2AFunctions.cs)) reuses the same orchestrator and validator. Partner agents present an on-behalf-of token carrying the *end user's* claims; the JSON-RPC `contextId` is the conversation id and goes through the same ownership check.

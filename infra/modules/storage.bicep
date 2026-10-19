@@ -5,8 +5,6 @@ param tags object = {}
 param documentsContainerName string = 'documents'
 @description('Name of the Function App content file share.')
 param contentShareName string
-@description('Azure Table that indexes Foundry conversation ids per user (PartitionKey = user object id).')
-param conversationsTableName string = 'conversations'
 @description('Queue carrying ingestion context (owner, document id, blob name) from the upload endpoint to the document-processing function. Must match the literal queue name in ProcessDocumentFunction\'s [QueueTrigger].')
 param documentProcessingQueueName string = 'document-processing'
 
@@ -47,11 +45,6 @@ resource deploymentsContainer 'Microsoft.Storage/storageAccounts/blobServices/co
   }
 }
 
-resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2025-08-01' = {
-  parent: storageAccount
-  name: 'default'
-}
-
 resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2025-08-01' = {
   parent: storageAccount
   name: 'default'
@@ -72,16 +65,9 @@ resource contentShare 'Microsoft.Storage/storageAccounts/fileServices/shares@202
   name: contentShareName
 }
 
-resource conversationsTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2025-08-01' = {
-  parent: tableService
-  name: conversationsTableName
-}
-
 output storageAccountName string = storageAccount.name
 output storageAccountId string = storageAccount.id
 output blobEndpoint string = storageAccount.properties.primaryEndpoints.blob
-output tableEndpoint string = storageAccount.properties.primaryEndpoints.table
 output queueEndpoint string = storageAccount.properties.primaryEndpoints.queue
 output documentsContainerName string = documentsContainer.name
-output conversationsTableName string = conversationsTable.name
 output documentProcessingQueueName string = documentProcessingQueue.name
