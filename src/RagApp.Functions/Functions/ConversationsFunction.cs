@@ -9,7 +9,7 @@ namespace RagApp.Functions.Functions;
 
 /// <summary>
 /// Chat history endpoints. History itself lives in Microsoft Foundry conversations
-/// (backed by the customer-managed Cosmos DB); the Azure Table index maps users to
+/// (Foundry's own Microsoft-managed thread storage); the Azure Table index maps users to
 /// their conversation ids and enforces ownership.
 /// </summary>
 public class ConversationsFunction

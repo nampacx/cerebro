@@ -1,6 +1,6 @@
 # 🧠 Cerebro
 
-**Enterprise RAG on Azure — PostgreSQL `pgvector` + native Row-Level Security + Microsoft Foundry (BYO services)**
+**Enterprise RAG on Azure — PostgreSQL `pgvector` + native Row-Level Security + Microsoft Foundry**
 
 > "Cerebro amplifies Xavier's psychic powers, allowing him to detect mutants anywhere on the planet — but it doesn't show him everything. It reads *the signature of the person in the chair* and surfaces only what that signature is tuned to find."
 
@@ -10,8 +10,8 @@ That's the whole idea here, minus the psychic helmet. 🪖 Every query against t
 
 - 🔒 **RLS is the only ACL.** There is no parallel "check permissions in code" path — retrieval, listing, chat, all go through the same PostgreSQL policies. If a query bypasses `SetUserContextAsync`, it returns *zero rows*, never *someone else's* rows. This is the access-control boundary — not network isolation. Every backing service is publicly reachable; what a caller can *see* is decided entirely by the database.
 - 🪪 **Entra ID end-to-end.** The same `oid`/`groups` claims that get a user through the front door are what the database reads to decide what they can see. Identity doesn't get translated or re-derived anywhere in between.
-- 🧩 **Bring your own Foundry services.** Chat history lives in *your* Cosmos DB, not a black box you can't audit. This is a wiring pattern for BYO storage, not a hosted SaaS.
-- 🏗️ **Managed identity everywhere.** The app talks to Postgres, Blob/Queue/Table, Cosmos, Key Vault, App Configuration and Foundry as itself — no connection strings, no secrets sitting in config waiting to leak.
+- 🧵 **Foundry owns its own chat storage.** Conversation threads live in Foundry's Microsoft-managed thread storage, not a bring-your-own Cosmos DB account this stack would otherwise have to provision and secure. The Azure Table ownership index — not where the bytes sit — is what actually keeps one user's conversations away from another's.
+- 🏗️ **Managed identity everywhere.** The app talks to Postgres, Blob/Queue/Table, Key Vault, App Configuration and Foundry as itself — no connection strings, no secrets sitting in config waiting to leak.
 - ⚡ **Solution accelerator, not a framework.** This is meant to be forked, read end-to-end, and adapted — not installed as a dependency.
 
 ## 🔍 What it does
@@ -20,7 +20,7 @@ That's the whole idea here, minus the psychic helmet. 🪖 Every query against t
 - **Microsoft Foundry (Azure AI Foundry)** hosts the chat model (GPT-5 series) and the embedding model
 - **Azure Functions (C#, .NET 10 isolated)** backend built on the **Microsoft Agent Framework**
 - **Asynchronous ingestion**: upload → Blob Storage → **queue trigger** → Foundry **Document Intelligence** (`prebuilt-read`) → chunking → embeddings → pgvector with citations
-- **Chat history** in **Microsoft Foundry conversations**, backed by a **customer-managed Cosmos DB** account; an Azure Table maps users to their conversation ids so sessions resume correctly
+- **Chat history** in **Microsoft Foundry conversations** (Microsoft-managed thread storage); an Azure Table maps users to their conversation ids so sessions resume correctly
 - **Azure Static Web App** (React + Vite) example client with document upload, status tracking and a chat UI with conversation history
 - **Entra ID authorization** end to end — the caller's `oid`/`groups` claims drive RLS on every retrieval
 - **A2A**: agent card + JSON-RPC endpoint, including the **on-behalf-of (OBO)** flow so partner agents act *as the end user*, never as themselves
@@ -36,9 +36,7 @@ flowchart LR
   PROC --> PG[(PostgreSQL<br/>pgvector + RLS)]
   FN -->|retrieval, RLS-scoped| PG
   FN --> TBL[(Azure Table<br/>conversation index)]
-  FN --> AI[Foundry<br/>GPT-5 + embeddings +<br/>Document Intelligence +<br/>conversations]
-  AI --> COSMOS[(Cosmos DB<br/>thread storage, BYO)]
-  AI --> SRCH[(Azure AI Search<br/>agent vector store<br/>required by capability host)]
+  FN --> AI[Foundry<br/>GPT-5 + embeddings +<br/>Document Intelligence +<br/>conversations, Microsoft-managed]
   FN --> KV[Key Vault]
   FN --> CFG[App Configuration]
 ```
@@ -47,7 +45,7 @@ flowchart LR
 
 | Path | Purpose |
 |---|---|
-| `infra/` | Bicep (azd-compatible): PostgreSQL, Foundry + Cosmos DB thread storage + Azure AI Search, Function App, Static Web App, Key Vault, App Configuration, monitoring |
+| `infra/` | Bicep (azd-compatible): PostgreSQL, Foundry, Function App, Static Web App, Key Vault, App Configuration, monitoring |
 | `db/schema.sql` | pgvector schema, tables and row-level security policies — the actual "Cerebro" |
 | `scripts/setup.ps1` | **One-shot setup**: prerequisites, azd environment, app registration, `azd up`, post-deployment redirect URIs and (optionally) the database |
 | `scripts/setup-app-registration.ps1` | Creates/updates the Entra ID app registration (API scope, groups claim, redirect URIs, client secret) |
@@ -84,10 +82,8 @@ The SPA polls `/api/documents` while any document is `pending` or `processing`.
 
 ## 💬 Chat history
 
-- History lives in **Microsoft Foundry conversations** (`/openai/v1/conversations`), persisted in the **customer-managed Cosmos DB** account attached to the Foundry project through a `CosmosDB` connection plus an `Agents` capability host.
-- The capability host's connection set is **atomic**: `threadStorageConnections` (Cosmos DB), `storageConnections` (Blob Storage) and `vectorStoreConnections` (**Azure AI Search**) must all be supplied together, or the control plane rejects the configuration. That's why an Azure AI Search service is deployed even though document retrieval is served entirely by **pgvector** — Search only backs the agent runtime's own vector store and otherwise stays idle. It defaults to the cheapest usable tier; override with `azd env set SEARCH_SKU standard`.
-- An **Azure Table** (`conversations`, `PartitionKey` = user object id) indexes each user's conversation ids and is the authorization boundary: a conversation can only be read, continued or deleted from the owner's partition.
-- Not ready to pay for Azure AI Search? `azd env set USE_CUSTOM_FOUNDRY_STORAGE false` falls back to Microsoft-managed thread storage; Cosmos, Storage and Search connections and the capability hosts are skipped entirely.
+- History lives in **Microsoft Foundry conversations** (`/openai/v1/conversations`), persisted in Foundry's own **Microsoft-managed thread storage**. There is no customer-managed Cosmos DB or Azure AI Search to provision, secure or pay for — one less set of accounts and RBAC assignments to operate, and retrieval is served entirely by **pgvector** regardless.
+- An **Azure Table** (`conversations`, `PartitionKey` = user object id) indexes each user's conversation ids and is the authorization boundary: a conversation can only be read, continued or deleted from the owner's partition. This is unrelated to where Foundry stores the actual message bytes — it's what stops one user from reading another's conversation by id.
 
 ## 🌐 Web application
 
@@ -234,10 +230,9 @@ npm run dev
 
 ## 🛡️ Security notes
 
-- All data-plane access uses the function app's **system-assigned managed identity** (Blob Data Owner, Queue/Table Data Contributor for the queue trigger and conversation index, Cognitive Services OpenAI User, Cognitive Services User, Key Vault Secrets User, App Configuration Data Reader; Entra-native PostgreSQL role).
-- The Foundry project identity gets Cosmos DB Operator + built-in Cosmos data contributor, Storage Blob Data Contributor, and Search Index Data Contributor + Search Service Contributor so agent conversations persist to your own accounts; Cosmos and Azure AI Search local auth are disabled and both are reached over Entra only.
+- All data-plane access uses the function app's **system-assigned managed identity** (Blob Data Owner, Queue/Table Data Contributor for the queue trigger and conversation index, Cognitive Services OpenAI User, Cognitive Services User, Key Vault Secrets User, App Configuration Data Reader; Entra-native PostgreSQL role). The Foundry project itself holds no extra role assignments — there's no bring-your-own storage account for it to reach.
 - Conversation ownership is enforced by the Azure Table index, so Foundry conversation ids are never usable across users (including through the A2A `contextId`).
 - `disableLocalAuth` is set on Foundry and App Configuration; storage blob public access is off.
 - Easy Auth (`authsettingsV2`) rejects unauthenticated requests at the platform edge when `AUTH_CLIENT_ID` is set; the code additionally validates the JWT and extracts `oid`/`groups` for RLS.
-- **No VNet, no private endpoints.** Every backing service (PostgreSQL, Storage, Cosmos DB, Key Vault, App Configuration, Azure AI Search and Foundry) deploys with public network access enabled, same as the Function App and the Static Web App. Network isolation is not part of the threat model here — native PostgreSQL row-level security is the access-control boundary, and Easy Auth plus code-level JWT validation protect the Function App's front door.
+- **No VNet, no private endpoints.** Every backing service (PostgreSQL, Storage, Key Vault, App Configuration and Foundry) deploys with public network access enabled, same as the Function App and the Static Web App. Network isolation is not part of the threat model here — native PostgreSQL row-level security is the access-control boundary, and Easy Auth plus code-level JWT validation protect the Function App's front door.
 - The PostgreSQL local admin password is **generated during deployment** from a per-deployment GUID (`newGuid()`), never handled by a human or written to the azd environment, and stored in Key Vault as `postgres-admin-password`. It exists only for break-glass access — the application authenticates with Entra. Because it is regenerated on each `azd up`, pin it with `azd env set POSTGRES_ADMIN_PASSWORD '<value>'` if you need a stable value.

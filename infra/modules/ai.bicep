@@ -13,15 +13,6 @@ param embeddingModelName string = 'text-embedding-3-large'
 param embeddingModelVersion string = '1'
 param embeddingModelCapacity int = 120
 
-@description('Enable customer-managed Foundry agent storage (Cosmos DB for conversation threads + Storage for artifacts + AI Search for the agent vector store).')
-param useCustomFoundryStorage bool = true
-@description('Resource id of the Cosmos DB account used for Foundry conversation thread storage.')
-param cosmosAccountId string = ''
-@description('Resource id of the Storage account used for Foundry agent artifacts.')
-param storageAccountId string = ''
-@description('Resource id of the Azure AI Search service used for the Foundry agent vector store. Required whenever the other two are set: the Agents capability host rejects a partial connection set.')
-param searchServiceId string = ''
-
 resource account 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
   name: accountName
   location: location
@@ -54,75 +45,10 @@ resource project 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-previ
   }
 }
 
-var cosmosAccountName = empty(cosmosAccountId) ? '' : last(split(cosmosAccountId, '/'))
-var storageAccountName = empty(storageAccountId) ? '' : last(split(storageAccountId, '/'))
-var searchServiceName = empty(searchServiceId) ? '' : last(split(searchServiceId, '/'))
-// The Agents capability host validates threadStorage + storage + vectorStore as an atomic
-// set ("All connections must be provided, else omitted"), so all three resource ids must be
-// present before any of the connections or capability hosts are created.
-var byoStorage = useCustomFoundryStorage && !empty(cosmosAccountId) && !empty(storageAccountId) && !empty(searchServiceId)
-
-resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2026-03-15' existing = if (byoStorage) {
-  name: byoStorage ? cosmosAccountName : 'placeholder'
-}
-
-resource storageAccount 'Microsoft.Storage/storageAccounts@2025-08-01' existing = if (byoStorage) {
-  name: byoStorage ? storageAccountName : 'placeholder'
-}
-
-resource cosmosConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview' = if (byoStorage) {
-  parent: project
-  name: cosmosAccountName
-  properties: {
-    category: 'CosmosDB'
-    #disable-next-line BCP318
-    target: byoStorage ? cosmosAccount.properties.documentEndpoint : ''
-    authType: 'AAD'
-    metadata: {
-      ApiType: 'Azure'
-      ResourceId: cosmosAccountId
-      location: location
-    }
-  }
-}
-
-resource storageConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview' = if (byoStorage) {
-  parent: project
-  name: storageAccountName
-  properties: {
-    category: 'AzureStorageAccount'
-    #disable-next-line BCP318
-    target: byoStorage ? storageAccount.properties.primaryEndpoints.blob : ''
-    authType: 'AAD'
-    metadata: {
-      ApiType: 'Azure'
-      ResourceId: storageAccountId
-      location: location
-    }
-  }
-}
-
-resource searchConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview' = if (byoStorage) {
-  parent: project
-  name: searchServiceName
-  properties: {
-    category: 'CognitiveSearch'
-    target: 'https://${searchServiceName}.search.windows.net'
-    authType: 'AAD'
-    metadata: {
-      ApiType: 'Azure'
-      ResourceId: searchServiceId
-      location: location
-    }
-  }
-}
-
-// Every child write (capability hosts, model deployments) briefly moves the parent account
-// back to a non-terminal "Accepted" provisioning state. Anything touching the account
-// concurrently fails with AccountProvisioningStateInvalid, so the account mutations below
-// are deliberately serialized rather than left to run in parallel. The capability hosts
-// live in modules/foundry-caphost.bicep because they must be created only after the project
-// identity holds data-plane roles on Cosmos, Storage and AI Search.
+// Every child write (model deployments) briefly moves the parent account back to a
+// non-terminal "Accepted" provisioning state. Anything touching the account concurrently
+// fails with AccountProvisioningStateInvalid, so the deployments below are deliberately
+// serialized rather than left to run in parallel.
 resource chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {
   parent: account
   name: chatModelDeploymentName
@@ -137,7 +63,6 @@ resource chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-0
       version: empty(chatModelVersion) ? null : chatModelVersion
     }
   }
-  dependsOn: [cosmosConnection, storageConnection, searchConnection]
 }
 resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {
   parent: account
@@ -160,15 +85,10 @@ output accountName string = account.name
 output accountId string = account.id
 output endpoint string = account.properties.endpoint
 output openAiEndpoint string = 'https://${accountName}.openai.azure.com/'
-@description('Project-scoped endpoint. The conversations API (BYO Cosmos DB thread storage) is only served here, not off the account endpoint above.')
+@description('Project-scoped endpoint. The conversations API (Microsoft-managed thread storage) is only served here, not off the account endpoint above.')
 output foundryProjectEndpoint string = 'https://${accountName}.services.ai.azure.com/api/projects/${projectName}'
 output documentIntelligenceEndpoint string = 'https://${accountName}.cognitiveservices.azure.com/'
 output projectName string = project.name
-output projectPrincipalId string = project.identity.principalId
-output accountPrincipalId string = account.identity.principalId
 output chatDeploymentName string = chatDeployment.name
 output embeddingDeploymentName string = embeddingDeployment.name
-output cosmosConnectionName string = cosmosAccountName
-output storageConnectionName string = storageAccountName
-output searchConnectionName string = searchServiceName
 

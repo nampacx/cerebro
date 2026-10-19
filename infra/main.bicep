@@ -38,14 +38,6 @@ param embeddingModelVersion string = '1'
 @description('Embedding vector dimensions; must match db/schema.sql vector(N).')
 param embeddingDimensions int = 1536
 
-@description('Attach customer-managed Cosmos DB + Storage + AI Search to Foundry so agent conversations are stored in your own subscription. Set to "false" if the capability host API rejects the configuration in your region.')
-@allowed(['true', 'false'])
-param useCustomFoundryStorage string = 'true'
-
-@description('SKU of the Azure AI Search service backing the Foundry agent vector store. The Agents capability host requires an AI Search connection even though this solution serves retrieval from pgvector, so basic is the default.')
-@allowed(['basic', 'standard'])
-param searchSku string = 'basic'
-
 @description('Region for the Static Web App. Static Web Apps is available in a limited set of regions; westeurope is the closest to swedencentral.')
 param staticWebAppLocation string = 'westeurope'
 
@@ -64,10 +56,6 @@ var functionAppUrl = 'https://${functionAppName}.azurewebsites.net'
 // for break-glass access.
 var generatedPostgresAdminPassword = 'Pg${toUpper(substring(uniqueString(postgresAdminPasswordSeed), 0, 7))}${uniqueString(subscription().id, environmentName, postgresAdminPasswordSeed)}#4z'
 var effectivePostgresAdminPassword = empty(postgresAdminPassword) ? generatedPostgresAdminPassword : postgresAdminPassword
-
-// Cosmos, Storage and AI Search are always deployed, so bring-your-own agent storage is
-// governed solely by this switch. The capability hosts require all three connections.
-var byoFoundryStorage = useCustomFoundryStorage == 'true'
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: 'rg-${environmentName}'
@@ -93,27 +81,6 @@ module storage 'modules/storage.bicep' = {
     location: location
     storageAccountName: 'st${resourceToken}'
     contentShareName: toLower(functionAppName)
-    tags: tags
-  }
-}
-
-module cosmos 'modules/cosmos.bicep' = {
-  name: 'cosmos'
-  scope: rg
-  params: {
-    location: location
-    accountName: 'cosmos-${resourceToken}'
-    tags: tags
-  }
-}
-
-module search 'modules/search.bicep' = {
-  name: 'search'
-  scope: rg
-  params: {
-    location: location
-    searchServiceName: 'srch-${resourceToken}'
-    sku: searchSku
     tags: tags
   }
 }
@@ -155,10 +122,6 @@ module ai 'modules/ai.bicep' = {
     embeddingModelDeploymentName: embeddingModelDeploymentName
     embeddingModelName: embeddingModelName
     embeddingModelVersion: embeddingModelVersion
-    useCustomFoundryStorage: byoFoundryStorage
-    cosmosAccountId: cosmos.outputs.accountId
-    storageAccountId: storage.outputs.storageAccountId
-    searchServiceId: search.outputs.searchServiceId
     tags: tags
   }
 }
@@ -236,26 +199,7 @@ module rbac 'modules/rbac.bicep' = {
     aiAccountId: ai.outputs.accountId
     keyVaultId: keyVault.outputs.keyVaultId
     appConfigId: appConfig.outputs.appConfigId
-    foundryProjectPrincipalId: ai.outputs.projectPrincipalId
-    cosmosAccountId: cosmos.outputs.accountId
-    searchServiceId: search.outputs.searchServiceId
   }
-}
-
-// Created last: the capability hosts need the project identity to already hold data-plane
-// roles on Cosmos, Storage and AI Search, and need the Foundry account to be settled after
-// the model deployments.
-module foundryCapabilityHosts 'modules/foundry-caphost.bicep' = if (byoFoundryStorage) {
-  name: 'foundry-caphost'
-  scope: rg
-  params: {
-    accountName: ai.outputs.accountName
-    projectName: ai.outputs.projectName
-    cosmosConnectionName: ai.outputs.cosmosConnectionName
-    storageConnectionName: ai.outputs.storageConnectionName
-    searchConnectionName: ai.outputs.searchConnectionName
-  }
-  dependsOn: [rbac]
 }
 
 module pgPasswordSecret 'modules/kv-secret.bicep' = {
@@ -290,8 +234,6 @@ output DOCUMENT_INTELLIGENCE_ENDPOINT string = ai.outputs.documentIntelligenceEn
 output STORAGE_BLOB_ENDPOINT string = storage.outputs.blobEndpoint
 output STORAGE_TABLE_ENDPOINT string = storage.outputs.tableEndpoint
 output CONVERSATIONS_TABLE string = storage.outputs.conversationsTableName
-output COSMOS_ACCOUNT_NAME string = cosmos.outputs.accountName
-output COSMOS_ENDPOINT string = cosmos.outputs.documentEndpoint
 output STATIC_WEB_APP_NAME string = staticWebApp.outputs.staticWebAppName
 output STATIC_WEB_APP_URL string = staticWebApp.outputs.staticWebAppUrl
 output WEB_API_BASE_URL string = functionAppUrl
