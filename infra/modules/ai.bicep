@@ -4,8 +4,8 @@ param accountName string
 param projectName string
 param tags object = {}
 
-param chatModelDeploymentName string = 'gpt-5.1-chat'
-param chatModelName string = 'gpt-5.1-chat'
+param chatModelDeploymentName string = 'gpt-6-luna'
+param chatModelName string = 'gpt-6-luna'
 param chatModelVersion string = ''
 param chatModelCapacity int = 50
 param embeddingModelDeploymentName string = 'text-embedding-3-large'

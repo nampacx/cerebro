@@ -4,9 +4,12 @@ using Azure.AI.OpenAI;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
+using OpenAI.Responses;
 using RagApp.Functions.Auth;
 using RagApp.Functions.Models;
 using ChatResponse = RagApp.Functions.Models.ChatResponse;
+
+#pragma warning disable OPENAI001 // Responses API is marked experimental by the OpenAI SDK.
 
 namespace RagApp.Functions.Services;
 
@@ -82,12 +85,23 @@ public class RagAgentService
             return string.Join("\n---\n", items);
         }
 
+        // The Chat Completions API can't combine tool calls with reasoning on gpt-5.6+/gpt-6
+        // models (a request with `tools` fails outright unless reasoning_effort is forced to
+        // "none"). The Responses API supports both together, so the agent is built on
+        // GetResponsesClient() here rather than GetChatClient().AsIChatClient().
         AIAgent agent = _openAiClient
-            .GetChatClient(_options.ChatDeployment)
-            .AsIChatClient()
+            .GetResponsesClient()
             .AsAIAgent(
-                instructions: Instructions,
-                tools: [AIFunctionFactory.Create(SearchDocuments, name: "search_documents")]);
+                new ChatClientAgentOptions
+                {
+                    ChatOptions = new ChatOptions
+                    {
+                        Instructions = Instructions,
+                        Tools = [AIFunctionFactory.Create(SearchDocuments, name: "search_documents")],
+                        Reasoning = new ReasoningOptions { Effort = ReasoningEffort.Low }
+                    }
+                },
+                model: _options.ChatDeployment);
 
         // Replay persisted history (from Foundry conversations) so the model has the
         // full context of the resumed session, then append the new user turn.

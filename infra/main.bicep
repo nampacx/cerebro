@@ -29,8 +29,8 @@ param postgresAdminPassword string = ''
 @description('Random seed used to derive the generated PostgreSQL admin password. Do not set this manually - the default produces a new GUID per deployment.')
 param postgresAdminPasswordSeed string = newGuid()
 
-param chatModelDeploymentName string = 'gpt-5.1-chat'
-param chatModelName string = 'gpt-5.1-chat'
+param chatModelDeploymentName string = 'gpt-6-luna'
+param chatModelName string = 'gpt-6-luna'
 param chatModelVersion string = ''
 param embeddingModelDeploymentName string = 'text-embedding-3-large'
 param embeddingModelName string = 'text-embedding-3-large'
