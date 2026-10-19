@@ -40,6 +40,6 @@
     "exclude": ["/assets/*", "/config.json"]
   },
   "globalHeaders": {
-    "Content-Security-Policy": "default-src 'self'; connect-src 'self' https://*.azurewebsites.net https://login.microsoftonline.com; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src https://login.microsoftonline.com"
+    "Content-Security-Policy": "default-src 'self'; connect-src 'self' https://*.azurewebsites.net https://login.microsoftonline.com; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'self' https://login.microsoftonline.com"
   }
 }

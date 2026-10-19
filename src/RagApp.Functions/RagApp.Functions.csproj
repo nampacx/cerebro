@@ -50,7 +50,6 @@
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Storage.Blobs" Version="6.8.2" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Storage.Queues" Version="5.5.5" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.1.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.AzureAppConfiguration" Version="8.6.0" />
     <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.22.0" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="Pgvector" Version="0.3.2" />

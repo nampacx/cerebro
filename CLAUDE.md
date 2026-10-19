@@ -52,7 +52,7 @@ This is the central design constraint; most other decisions follow from it.
 1. [Services/DocumentUploadService.cs](src/RagApp.Functions/Services/DocumentUploadService.cs) — writes the `pending` row *before* uploading the blob (so the row exists when processing picks it up), uploads the blob, then sends a `DocumentProcessingMessage` (documentId/ownerOid/filename/blobName) to the `document-processing` storage queue, returns `202`.
 2. [Functions/ProcessDocumentFunction.cs](src/RagApp.Functions/Functions/ProcessDocumentFunction.cs) → [Services/DocumentProcessingService.cs](src/RagApp.Functions/Services/DocumentProcessingService.cs) — a `[QueueTrigger]` (not `[BlobTrigger]`) runs under the *app* identity but reconstructs `new UserContext(ownerOid, [], null)` from the message, so writes still pass owner-scoped RLS policies. Status transitions `pending → processing → completed|failed`; `AddChunksAsync` deletes existing chunks first, making reprocessing idempotent.
 
-The queue name is hardcoded (`"document-processing"`) as a literal in `[QueueTrigger]`, not `%Rag:DocumentProcessingQueue%`: the language-neutral Functions host resolves trigger binding expressions before the isolated worker process starts, so it can never see `Rag:*` values sourced from Azure App Configuration (only `Program.cs` in the worker loads those). `RagOptions.DocumentProcessingQueue` (used by the producer side) must keep matching that literal. This is also why `[BlobTrigger]` used to hardcode `"documents"` instead of referencing `Rag:DocumentsContainer`.
+The queue name is hardcoded (`"document-processing"`) as a literal in `[QueueTrigger]`, not `%Rag__DocumentProcessingQueue%`: it's a compile-time attribute value, so `RagOptions.DocumentProcessingQueue` (used by the producer side) must keep matching that literal by hand. This is also why `[BlobTrigger]` used to hardcode `"documents"` instead of referencing `Rag:DocumentsContainer`.
 
 A classic `[BlobTrigger]` was tried first and dropped: its fast path depends on the storage account's classic Storage Analytics logs, which aren't enabled by default on new accounts, so its fallback container-scan alone left new blobs undetected for many minutes or longer in practice.
 
@@ -67,11 +67,11 @@ A classic `[BlobTrigger]` was tried first and dropped: its fast path depends on 
 
 ## Configuration
 
-`RagOptions` / `AuthOptions` ([Models/Options.cs](src/RagApp.Functions/Models/Options.cs)) bind the `Rag:` and `Auth:` sections.
+`RagOptions` / `AuthOptions` ([Models/Options.cs](src/RagApp.Functions/Models/Options.cs)) bind the `Rag:` and `Auth:` sections. There is no Azure App Configuration store in this stack — all of `Rag:*`/`Auth:*` are plain app settings, same mechanism end to end.
 
-- **In Azure**, `Rag:*` values come from App Configuration (with Key Vault references), loaded in [Program.cs](src/RagApp.Functions/Program.cs). To change one, edit the `keyValues` array in the `appConfig` module block of [infra/main.bicep](infra/main.bicep) — not the function app settings. `Auth__TenantId` / `Auth__ClientId` *are* function app settings, set via `additionalAppSettings`.
-- **Locally**, everything comes from `local.settings.json` using `__` separators (see `local.settings.sample.json`). Set `Rag__PostgresUser` to your own Entra UPN; `DefaultAzureCredential` uses your `az login` identity.
-- The embedding dimension is coupled in **three places** that must agree: `vector(1536)` in `db/schema.sql`, `Rag:EmbeddingDimensions` in App Configuration, and the `embeddingDimensions` param in `infra/main.bicep`.
+- **In Azure**, values are Function App settings (`additionalAppSettings` in the `functionApp` module block of [infra/main.bicep](infra/main.bicep)), using `__` separators that .NET's configuration binder translates to `:` sections.
+- **Locally**, everything comes from `local.settings.json` using the same `__` separators (see `local.settings.sample.json`). Set `Rag__PostgresUser` to your own Entra UPN; `DefaultAzureCredential` uses your `az login` identity.
+- The embedding dimension is coupled in **three places** that must agree: `vector(1536)` in `db/schema.sql`, `Rag__EmbeddingDimensions` in the Function App settings, and the `embeddingDimensions` param in `infra/main.bicep`.
 
 Web client config is **generated, not authored**: `npm run build` runs [src/web/scripts/generate-config.mjs](src/web/scripts/generate-config.mjs), which writes `public/config.json` and `public/staticwebapp.config.json` from azd environment variables (falling back to `VITE_*`). Both outputs are git-ignored — edit the generator or [staticwebapp.config.template.json](src/web/staticwebapp.config.template.json) instead.
 

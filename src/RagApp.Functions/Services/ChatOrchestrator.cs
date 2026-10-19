@@ -50,7 +50,7 @@ public class ChatOrchestrator
         await _conversations.AddMessagesAsync(conversationId,
         [
             new ConversationMessage("user", message, DateTimeOffset.UtcNow),
-            new ConversationMessage("assistant", response.Answer, DateTimeOffset.UtcNow)
+            new ConversationMessage("assistant", response.Answer, DateTimeOffset.UtcNow, response.Citations)
         ], ct);
         await _store.TouchConversationAsync(user, conversationId, null, ct);
 

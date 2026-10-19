@@ -11,7 +11,7 @@ That's the whole idea here, minus the psychic helmet. 🪖 Every query against t
 - 🔒 **RLS is the only ACL.** There is no parallel "check permissions in code" path — retrieval, listing, chat, all go through the same PostgreSQL policies. If a query bypasses `SetUserContextAsync`, it returns *zero rows*, never *someone else's* rows. This is the access-control boundary — not network isolation. Every backing service is publicly reachable; what a caller can *see* is decided entirely by the database.
 - 🪪 **Entra ID end-to-end.** The same `oid`/`groups` claims that get a user through the front door are what the database reads to decide what they can see. Identity doesn't get translated or re-derived anywhere in between.
 - 🧵 **Foundry owns its own chat storage.** Conversation threads live in Foundry's Microsoft-managed thread storage, not a bring-your-own Cosmos DB account this stack would otherwise have to provision and secure. The PostgreSQL conversation ownership table under RLS — not where the bytes sit — is what actually keeps one user's conversations away from another's.
-- 🏗️ **Managed identity everywhere.** The app talks to Postgres, Blob/Queue, Key Vault, App Configuration and Foundry as itself — no connection strings, no secrets sitting in config waiting to leak.
+- 🏗️ **Managed identity everywhere.** The app talks to Postgres, Blob/Queue, Key Vault and Foundry as itself — no connection strings, no secrets sitting in config waiting to leak.
 - ⚡ **Solution accelerator, not a framework.** This is meant to be forked, read end-to-end, and adapted — not installed as a dependency.
 
 ## 🔍 What it does
@@ -24,7 +24,7 @@ That's the whole idea here, minus the psychic helmet. 🪖 Every query against t
 - **Azure Static Web App** (React + Vite) example client with document upload, status tracking and a chat UI with conversation history
 - **Entra ID authorization** end to end — the caller's `oid`/`groups` claims drive RLS on every retrieval
 - **A2A**: agent card + JSON-RPC endpoint, including the **on-behalf-of (OBO)** flow so partner agents act *as the end user*, never as themselves
-- **Managed identity everywhere**: no connection strings or secrets in config; Key Vault for secrets, App Configuration for app settings
+- **Managed identity everywhere**: no connection strings or secrets in config; Key Vault for the one real secret, plain Function App settings for everything else
 
 ```mermaid
 flowchart LR
@@ -37,14 +37,13 @@ flowchart LR
   FN -->|retrieval, RLS-scoped| PG
   FN --> AI[Foundry<br/>GPT-5 + embeddings +<br/>Document Intelligence +<br/>conversations, Microsoft-managed]
   FN --> KV[Key Vault]
-  FN --> CFG[App Configuration]
 ```
 
 ## 📁 Repository layout
 
 | Path | Purpose |
 |---|---|
-| `infra/` | Bicep (azd-compatible): PostgreSQL, Foundry, Function App, Static Web App, Key Vault, App Configuration, monitoring |
+| `infra/` | Bicep (azd-compatible): PostgreSQL, Foundry, Function App, Static Web App, Key Vault, monitoring |
 | `db/schema.sql` | pgvector schema, tables and row-level security policies — the actual "Cerebro" |
 | `scripts/setup.ps1` | **One-shot setup**: prerequisites, azd environment, app registration, `azd up`, post-deployment redirect URIs and the database |
 | `scripts/setup-app-registration.ps1` | Creates/updates the Entra ID app registration (API scope, groups claim, redirect URIs, client secret) |
@@ -160,7 +159,7 @@ Setup initializes the database automatically. To re-apply the schema to an exist
 
 This creates the function app's managed-identity role (`pgaadauth_create_principal`), applies `db/schema.sql` (tables + RLS policies) and grants least-privilege permissions.
 
-> The embedding dimension in `db/schema.sql` (`vector(1536)`) must match `Rag:EmbeddingDimensions` in App Configuration (1536 fits `text-embedding-3-large` when truncated, or use 3072 and update both).
+> The embedding dimension in `db/schema.sql` (`vector(1536)`) must match `Rag__EmbeddingDimensions` in the Function App settings (1536 fits `text-embedding-3-large` when truncated, or use 3072 and update both).
 
 ### 4. Tear down
 
@@ -230,9 +229,9 @@ npm run dev
 
 ## 🛡️ Security notes
 
-- All data-plane access uses the function app's **system-assigned managed identity** (Blob Data Owner, Queue Data Contributor for the queue trigger, Cognitive Services OpenAI User, Cognitive Services User, Key Vault Secrets User, App Configuration Data Reader; Entra-native PostgreSQL role). The Foundry project itself holds no extra role assignments — there's no bring-your-own storage account for it to reach.
+- All data-plane access uses the function app's **system-assigned managed identity** (Blob Data Owner, Queue Data Contributor for the queue trigger, Cognitive Services OpenAI User, Cognitive Services User, Key Vault Secrets User; Entra-native PostgreSQL role). The Foundry project itself holds no extra role assignments — there's no bring-your-own storage account for it to reach.
 - Conversation ownership is enforced by PostgreSQL RLS, so Foundry conversation ids are never usable across users (including through the A2A `contextId`).
-- `disableLocalAuth` is set on Foundry and App Configuration; storage blob public access is off.
+- `disableLocalAuth` is set on Foundry; storage blob public access is off. Non-secret config (`Rag:*`) is plain Function App settings — there's no separate Azure App Configuration store, so there's nothing extra to secure or grant RBAC on for it.
 - Easy Auth (`authsettingsV2`) rejects unauthenticated requests at the platform edge when `AUTH_CLIENT_ID` is set; the code additionally validates the JWT and extracts `oid`/`groups` for RLS.
-- **No VNet, no private endpoints.** Every backing service (PostgreSQL, Storage, Key Vault, App Configuration and Foundry) deploys with public network access enabled, same as the Function App and the Static Web App. Network isolation is not part of the threat model here — native PostgreSQL row-level security is the access-control boundary, and Easy Auth plus code-level JWT validation protect the Function App's front door.
+- **No VNet, no private endpoints.** Every backing service (PostgreSQL, Storage, Key Vault and Foundry) deploys with public network access enabled, same as the Function App and the Static Web App. Network isolation is not part of the threat model here — native PostgreSQL row-level security is the access-control boundary, and Easy Auth plus code-level JWT validation protect the Function App's front door.
 - The PostgreSQL local admin password is **generated during deployment** from a per-deployment GUID (`newGuid()`), never handled by a human or written to the azd environment, and stored in Key Vault as `postgres-admin-password`. It exists only for break-glass access — the application authenticates with Entra. Because it is regenerated on each `azd up`, pin it with `azd env set POSTGRES_ADMIN_PASSWORD '<value>'` if you need a stable value.

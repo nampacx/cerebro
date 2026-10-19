@@ -43,6 +43,7 @@ export interface ConversationMessage {
   role: string;
   text: string;
   createdAt: string | null;
+  citations: CitationResult[] | null;
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -97,5 +98,22 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, topK, conversationId })
-    })
+    }),
+
+  // Not routed through request(): that helper assumes a JSON response, this one streams
+  // the original file bytes. Opens the document in a new tab via an object URL; for PDFs
+  // the #page fragment is honored by Chrome/Edge/Firefox's built-in viewer.
+  openDocument: async (documentId: string, page: number | null): Promise<void> => {
+    const config = await loadConfig();
+    const token = await getApiToken();
+    const response = await fetch(`${config.apiBaseUrl}/api/documents/${documentId}/download`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to load document (status ${response.status}).`);
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(page ? `${url}#page=${page}` : url, '_blank', 'noopener');
+  }
 };

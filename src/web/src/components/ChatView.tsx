@@ -33,7 +33,13 @@ export function ChatView() {
     try {
       const conversation = await api.getConversation(id);
       setActiveId(id);
-      setMessages(conversation.messages.map((m) => ({ role: m.role, text: m.text })));
+      setMessages(
+        conversation.messages.map((m) => ({
+          role: m.role,
+          text: m.text,
+          citations: m.citations ?? undefined
+        }))
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to open conversation.');
     } finally {
@@ -126,7 +132,20 @@ export function ChatView() {
                   {message.citations.map((citation, i) => (
                     <li key={`${citation.documentId}-${citation.chunkIndex}-${i}`}>
                       <strong>
-                        [{i + 1}] {citation.filename}
+                        [{i + 1}]{' '}
+                        <button
+                          type="button"
+                          className="citation-link"
+                          onClick={() =>
+                            api
+                              .openDocument(citation.documentId, citation.page)
+                              .catch((err) =>
+                                setError(err instanceof Error ? err.message : 'Failed to open document.')
+                              )
+                          }
+                        >
+                          {citation.filename}
+                        </button>
                         {citation.page ? `, p. ${citation.page}` : ''}
                       </strong>
                       <span>{citation.snippet}</span>

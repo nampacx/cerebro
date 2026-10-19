@@ -125,10 +125,10 @@ try {
         # Values that point at resources which no longer exist. Leaving them behind makes a
         # later setup.ps1 run look like it succeeded while wiring up a deleted app registration.
         Write-Step 'Clearing stale azd environment values'
-        foreach ($key in 'AUTH_CLIENT_ID', 'AUTH_CLIENT_SECRET', 'STATIC_WEB_APP_URL', 'APP_CONFIG_NAME', 'APP_CONFIG_ENDPOINT') {
+        foreach ($key in 'AUTH_CLIENT_ID', 'AUTH_CLIENT_SECRET', 'STATIC_WEB_APP_URL') {
             azd env set $key '' -e $EnvironmentName 2>$null | Out-Null
         }
-        Write-Host 'Cleared AUTH_CLIENT_ID, AUTH_CLIENT_SECRET, STATIC_WEB_APP_URL and App Configuration values.'
+        Write-Host 'Cleared AUTH_CLIENT_ID, AUTH_CLIENT_SECRET and STATIC_WEB_APP_URL.'
     }
 
     Write-Host ''
