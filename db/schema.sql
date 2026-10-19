@@ -51,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_chunks_embedding ON chunks
     USING hnsw (embedding vector_cosine_ops);
 CREATE INDEX IF NOT EXISTS idx_document_acl_group ON document_acl(group_oid);
 
--- Chat history lives in Foundry conversations (BYO Cosmos DB thread storage); this table is
+-- Chat history lives in Foundry conversations (Microsoft-managed thread storage); this table is
 -- purely the authorization index mapping users to their conversation ids, replacing the
 -- former Azure Table index. id is the Foundry conversation id, not a local uuid.
 CREATE TABLE IF NOT EXISTS conversations (

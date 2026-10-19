@@ -1,10 +1,7 @@
-@description('Key Vault with RBAC authorization and private endpoint.')
+@description('Key Vault with RBAC authorization.')
 param location string
 param keyVaultName string
 param tags object = {}
-param publicNetworkAccess string = 'Disabled'
-param privateEndpointSubnetId string
-param keyVaultDnsZoneId string
 
 resource keyVault 'Microsoft.KeyVault/vaults@2026-02-01' = {
   name: keyVaultName
@@ -19,24 +16,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2026-02-01' = {
     enableRbacAuthorization: true
     enableSoftDelete: true
     softDeleteRetentionInDays: 7
-    publicNetworkAccess: publicNetworkAccess
-    networkAcls: {
-      defaultAction: publicNetworkAccess == 'Disabled' ? 'Deny' : 'Allow'
-      bypass: 'AzureServices'
-    }
-  }
-}
-
-module privateEndpoint 'private-endpoint.bicep' = {
-  name: 'pe-${keyVaultName}'
-  params: {
-    location: location
-    name: 'pe-${keyVaultName}'
-    subnetId: privateEndpointSubnetId
-    targetResourceId: keyVault.id
-    groupId: 'vault'
-    dnsZoneIds: [keyVaultDnsZoneId]
-    tags: tags
+    publicNetworkAccess: 'Enabled'
   }
 }
 

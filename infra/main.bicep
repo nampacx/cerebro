@@ -29,10 +29,6 @@ param postgresAdminPassword string = ''
 @description('Random seed used to derive the generated PostgreSQL admin password. Do not set this manually - the default produces a new GUID per deployment.')
 param postgresAdminPasswordSeed string = newGuid()
 
-@description('Enabled for dev/test scenarios; Disabled for enterprise/production private-only access.')
-@allowed(['Enabled', 'Disabled'])
-param publicNetworkAccess string = 'Disabled'
-
 param chatModelDeploymentName string = 'gpt-5'
 param chatModelName string = 'gpt-5'
 param chatModelVersion string = ''
@@ -41,14 +37,6 @@ param embeddingModelName string = 'text-embedding-3-large'
 param embeddingModelVersion string = '1'
 @description('Embedding vector dimensions; must match db/schema.sql vector(N).')
 param embeddingDimensions int = 1536
-
-@description('Attach customer-managed Cosmos DB + Storage + AI Search to Foundry so agent conversations are stored in your own subscription. Set to "false" if the capability host API rejects the configuration in your region.')
-@allowed(['true', 'false'])
-param useCustomFoundryStorage string = 'true'
-
-@description('SKU of the Azure AI Search service backing the Foundry agent vector store. The Agents capability host requires an AI Search connection even though this solution serves retrieval from pgvector, so basic is the default.')
-@allowed(['basic', 'standard'])
-param searchSku string = 'basic'
 
 @description('Region for the Static Web App. Static Web Apps is available in a limited set of regions; westeurope is the closest to swedencentral.')
 param staticWebAppLocation string = 'westeurope'
@@ -69,24 +57,10 @@ var functionAppUrl = 'https://${functionAppName}.azurewebsites.net'
 var generatedPostgresAdminPassword = 'Pg${toUpper(substring(uniqueString(postgresAdminPasswordSeed), 0, 7))}${uniqueString(subscription().id, environmentName, postgresAdminPasswordSeed)}#4z'
 var effectivePostgresAdminPassword = empty(postgresAdminPassword) ? generatedPostgresAdminPassword : postgresAdminPassword
 
-// Cosmos, Storage and AI Search are always deployed, so bring-your-own agent storage is
-// governed solely by this switch. The capability hosts require all three connections.
-var byoFoundryStorage = useCustomFoundryStorage == 'true'
-
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: 'rg-${environmentName}'
   location: location
   tags: tags
-}
-
-module network 'modules/network.bicep' = {
-  name: 'network'
-  scope: rg
-  params: {
-    location: location
-    vnetName: 'vnet-${resourceToken}'
-    tags: tags
-  }
 }
 
 module monitoring 'modules/monitoring.bicep' = {
@@ -106,46 +80,7 @@ module storage 'modules/storage.bicep' = {
   params: {
     location: location
     storageAccountName: 'st${resourceToken}'
-    publicNetworkAccess: publicNetworkAccess
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    blobDnsZoneId: network.outputs.blobDnsZoneId
-    queueDnsZoneId: network.outputs.queueDnsZoneId
-    fileDnsZoneId: network.outputs.fileDnsZoneId
     contentShareName: toLower(functionAppName)
-    tags: tags
-  }
-}
-
-module cosmos 'modules/cosmos.bicep' = {
-  name: 'cosmos'
-  scope: rg
-  params: {
-    location: location
-    accountName: 'cosmos-${resourceToken}'
-    publicNetworkAccess: publicNetworkAccess
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    cosmosDnsZoneId: network.outputs.cosmosDnsZoneId
-    // Reverted to always-empty: Cosmos DB's networkAclBypassResourceIds only supports
-    // Synapse Link / Data Factory / Azure ML workspace resource ids, not Cognitive
-    // Services/Foundry accounts, so passing foundryAccountResourceId here fails
-    // provisioning with "Invalid supplied NetworkAclBypassResourceId". The
-    // Foundry-Agents-to-Cosmos firewall bypass this was meant to provide still needs a
-    // different mechanism.
-    networkAclBypassResourceIds: []
-    tags: tags
-  }
-}
-
-module search 'modules/search.bicep' = {
-  name: 'search'
-  scope: rg
-  params: {
-    location: location
-    searchServiceName: 'srch-${resourceToken}'
-    sku: searchSku
-    publicNetworkAccess: publicNetworkAccess
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    searchDnsZoneId: network.outputs.searchDnsZoneId
     tags: tags
   }
 }
@@ -156,9 +91,6 @@ module keyVault 'modules/keyvault.bicep' = {
   params: {
     location: location
     keyVaultName: 'kv-${resourceToken}'
-    publicNetworkAccess: publicNetworkAccess
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    keyVaultDnsZoneId: network.outputs.keyVaultDnsZoneId
     tags: tags
   }
 }
@@ -173,9 +105,6 @@ module postgres 'modules/postgres.bicep' = {
     entraAdminObjectId: postgresEntraAdminObjectId
     entraAdminPrincipalName: postgresEntraAdminPrincipalName
     entraAdminPrincipalType: postgresEntraAdminPrincipalType
-    publicNetworkAccess: publicNetworkAccess
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    postgresDnsZoneId: network.outputs.postgresDnsZoneId
     tags: tags
   }
 }
@@ -187,29 +116,15 @@ module ai 'modules/ai.bicep' = {
     location: location
     accountName: 'aif-${resourceToken}'
     projectName: 'cerebro-project'
-    publicNetworkAccess: publicNetworkAccess
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    agentSubnetId: network.outputs.agentSubnetId
-    cognitiveServicesDnsZoneId: network.outputs.cognitiveServicesDnsZoneId
-    openAiDnsZoneId: network.outputs.openAiDnsZoneId
-    aiServicesDnsZoneId: network.outputs.aiServicesDnsZoneId
     chatModelDeploymentName: chatModelDeploymentName
     chatModelName: chatModelName
     chatModelVersion: chatModelVersion
     embeddingModelDeploymentName: embeddingModelDeploymentName
     embeddingModelName: embeddingModelName
     embeddingModelVersion: embeddingModelVersion
-    useCustomFoundryStorage: byoFoundryStorage
-    cosmosAccountId: cosmos.outputs.accountId
-    storageAccountId: storage.outputs.storageAccountId
-    searchServiceId: search.outputs.searchServiceId
     tags: tags
   }
 }
-
-@description('Public network access for the App Configuration store *during provisioning*. ARM writes key-values over the data plane, which it cannot reach through a private endpoint unless the deployment runs inside the VNet, so this defaults to Enabled and the azd postprovision hook closes it again. Local auth stays disabled, so Entra RBAC is enforced the whole time.')
-@allowed(['Enabled', 'Disabled'])
-param appConfigPublicNetworkAccess string = 'Enabled'
 
 module appConfig 'modules/appconfig.bicep' = {
   name: 'appconfig'
@@ -217,9 +132,6 @@ module appConfig 'modules/appconfig.bicep' = {
   params: {
     location: location
     appConfigName: 'appcs-${resourceToken}'
-    publicNetworkAccess: appConfigPublicNetworkAccess
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    appConfigDnsZoneId: network.outputs.appConfigDnsZoneId
     deployerPrincipalId: postgresEntraAdminObjectId
     deployerPrincipalType: postgresEntraAdminPrincipalType
     tags: tags
@@ -262,7 +174,6 @@ module functionApp 'modules/function.bicep' = {
     location: location
     planName: 'plan-${resourceToken}'
     functionAppName: functionAppName
-    appIntegrationSubnetId: network.outputs.appIntegrationSubnetId
     storageAccountName: storage.outputs.storageAccountName
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
     appConfigEndpoint: appConfig.outputs.appConfigEndpoint
@@ -286,27 +197,7 @@ module rbac 'modules/rbac.bicep' = {
     aiAccountId: ai.outputs.accountId
     keyVaultId: keyVault.outputs.keyVaultId
     appConfigId: appConfig.outputs.appConfigId
-    foundryProjectPrincipalId: ai.outputs.projectPrincipalId
-    cosmosAccountId: cosmos.outputs.accountId
-    searchServiceId: search.outputs.searchServiceId
   }
-}
-
-// Created last: the capability hosts need the project identity to already hold data-plane
-// roles on Cosmos, Storage and AI Search, and need the Foundry account to be settled after
-// the model deployments.
-module foundryCapabilityHosts 'modules/foundry-caphost.bicep' = if (byoFoundryStorage) {
-  name: 'foundry-caphost'
-  scope: rg
-  params: {
-    accountName: ai.outputs.accountName
-    projectName: ai.outputs.projectName
-    cosmosConnectionName: ai.outputs.cosmosConnectionName
-    storageConnectionName: ai.outputs.storageConnectionName
-    searchConnectionName: ai.outputs.searchConnectionName
-    agentSubnetId: network.outputs.agentSubnetId
-  }
-  dependsOn: [rbac]
 }
 
 module pgPasswordSecret 'modules/kv-secret.bicep' = {
@@ -339,8 +230,6 @@ output AI_FOUNDRY_ENDPOINT string = ai.outputs.endpoint
 output OPENAI_ENDPOINT string = ai.outputs.openAiEndpoint
 output DOCUMENT_INTELLIGENCE_ENDPOINT string = ai.outputs.documentIntelligenceEndpoint
 output STORAGE_BLOB_ENDPOINT string = storage.outputs.blobEndpoint
-output COSMOS_ACCOUNT_NAME string = cosmos.outputs.accountName
-output COSMOS_ENDPOINT string = cosmos.outputs.documentEndpoint
 output STATIC_WEB_APP_NAME string = staticWebApp.outputs.staticWebAppName
 output STATIC_WEB_APP_URL string = staticWebApp.outputs.staticWebAppUrl
 output WEB_API_BASE_URL string = functionAppUrl

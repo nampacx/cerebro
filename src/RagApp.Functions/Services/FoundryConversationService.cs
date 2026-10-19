@@ -10,16 +10,16 @@ namespace RagApp.Functions.Services;
 
 /// <summary>
 /// Wraps the Microsoft Foundry conversations API, which persists chat history
-/// server-side in the project's customer-managed Cosmos DB (BYO thread storage).
+/// server-side in Foundry's own Microsoft-managed thread storage.
 /// Ownership of a conversation is enforced separately by row-level security on the
 /// PostgreSQL <c>conversations</c> table (see <see cref="PgVectorStore"/>), which maps
 /// users to their conversation ids.
 /// </summary>
 public class FoundryConversationService
 {
-    // The conversations API is only served off the project-scoped host (services.ai.azure.com/api/projects/...),
-    // which is wired to the project's BYO Cosmos DB thread storage; the plain account endpoint 404s. That host
-    // authorizes against the ai.azure.com audience, not cognitiveservices.azure.com.
+    // The conversations API is only served off the project-scoped host (services.ai.azure.com/api/projects/...);
+    // the plain account endpoint 404s. That host authorizes against the ai.azure.com audience, not
+    // cognitiveservices.azure.com.
     private static readonly string[] Scope = ["https://ai.azure.com/.default"];
 
     private readonly HttpClient _httpClient;

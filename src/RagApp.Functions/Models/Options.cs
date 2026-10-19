@@ -5,7 +5,7 @@ public class RagOptions
     public const string SectionName = "Rag";
 
     public string OpenAiEndpoint { get; set; } = string.Empty;
-    /// <summary>Project-scoped Foundry endpoint (`https://{account}.services.ai.azure.com/api/projects/{project}`), required for the conversations API to reach the project's BYO Cosmos DB thread storage.</summary>
+    /// <summary>Project-scoped Foundry endpoint (`https://{account}.services.ai.azure.com/api/projects/{project}`), required to reach the conversations API; the account endpoint alone 404s.</summary>
     public string FoundryProjectEndpoint { get; set; } = string.Empty;
     public string DocumentIntelligenceEndpoint { get; set; } = string.Empty;
     public string ChatDeployment { get; set; } = "gpt-5";

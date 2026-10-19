@@ -1,4 +1,4 @@
-@description('Azure Database for PostgreSQL Flexible Server with pgvector, Entra auth, and private endpoint.')
+@description('Azure Database for PostgreSQL Flexible Server with pgvector and Entra auth. Public network access is open; native PostgreSQL row-level security, not network isolation, is the access-control boundary.')
 param location string
 param serverName string
 param tags object = {}
@@ -10,9 +10,6 @@ param entraAdminPrincipalName string
 @allowed(['User', 'ServicePrincipal', 'Group'])
 param entraAdminPrincipalType string = 'User'
 param databaseName string = 'ragdb'
-param publicNetworkAccess string = 'Disabled'
-param privateEndpointSubnetId string
-param postgresDnsZoneId string
 
 resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2025-08-01' = {
   name: serverName
@@ -36,7 +33,7 @@ resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2025-08-01' = {
       autoGrow: 'Enabled'
     }
     network: {
-      publicNetworkAccess: publicNetworkAccess
+      publicNetworkAccess: 'Enabled'
     }
     backup: {
       backupRetentionDays: 7
@@ -74,19 +71,6 @@ resource database 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2025-08-0
   properties: {
     charset: 'UTF8'
     collation: 'en_US.utf8'
-  }
-}
-
-module privateEndpoint 'private-endpoint.bicep' = {
-  name: 'pe-${serverName}'
-  params: {
-    location: location
-    name: 'pe-${serverName}'
-    subnetId: privateEndpointSubnetId
-    targetResourceId: server.id
-    groupId: 'postgresqlServer'
-    dnsZoneIds: [postgresDnsZoneId]
-    tags: tags
   }
 }
 
