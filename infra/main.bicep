@@ -29,8 +29,8 @@ param postgresAdminPassword string = ''
 @description('Random seed used to derive the generated PostgreSQL admin password. Do not set this manually - the default produces a new GUID per deployment.')
 param postgresAdminPasswordSeed string = newGuid()
 
-param chatModelDeploymentName string = 'gpt-5'
-param chatModelName string = 'gpt-5'
+param chatModelDeploymentName string = 'gpt-5.1-chat'
+param chatModelName string = 'gpt-5.1-chat'
 param chatModelVersion string = ''
 param embeddingModelDeploymentName string = 'text-embedding-3-large'
 param embeddingModelName string = 'text-embedding-3-large'
@@ -126,34 +126,6 @@ module ai 'modules/ai.bicep' = {
   }
 }
 
-module appConfig 'modules/appconfig.bicep' = {
-  name: 'appconfig'
-  scope: rg
-  params: {
-    location: location
-    appConfigName: 'appcs-${resourceToken}'
-    deployerPrincipalId: postgresEntraAdminObjectId
-    deployerPrincipalType: postgresEntraAdminPrincipalType
-    tags: tags
-    keyValues: [
-      { name: 'Rag:OpenAiEndpoint', value: ai.outputs.openAiEndpoint }
-      { name: 'Rag:FoundryProjectEndpoint', value: ai.outputs.foundryProjectEndpoint }
-      { name: 'Rag:DocumentIntelligenceEndpoint', value: ai.outputs.documentIntelligenceEndpoint }
-      { name: 'Rag:ChatDeployment', value: chatModelDeploymentName }
-      { name: 'Rag:EmbeddingDeployment', value: embeddingModelDeploymentName }
-      { name: 'Rag:EmbeddingDimensions', value: string(embeddingDimensions) }
-      { name: 'Rag:PostgresHost', value: postgres.outputs.serverFqdn }
-      { name: 'Rag:PostgresDatabase', value: postgres.outputs.databaseName }
-      { name: 'Rag:BlobEndpoint', value: storage.outputs.blobEndpoint }
-      { name: 'Rag:QueueEndpoint', value: storage.outputs.queueEndpoint }
-      { name: 'Rag:DocumentsContainer', value: storage.outputs.documentsContainerName }
-      { name: 'Rag:DocumentProcessingQueue', value: storage.outputs.documentProcessingQueueName }
-      { name: 'Rag:ChunkSizeTokens', value: '512' }
-      { name: 'Rag:ChunkOverlapTokens', value: '64' }
-    ]
-  }
-}
-
 module staticWebApp 'modules/staticwebapp.bicep' = {
   name: 'staticwebapp'
   scope: rg
@@ -176,13 +148,26 @@ module functionApp 'modules/function.bicep' = {
     functionAppName: functionAppName
     storageAccountName: storage.outputs.storageAccountName
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
-    appConfigEndpoint: appConfig.outputs.appConfigEndpoint
     keyVaultUri: keyVault.outputs.keyVaultUri
     authClientId: authClientId
     allowedCorsOrigins: [staticWebApp.outputs.staticWebAppUrl]
     additionalAppSettings: {
       Auth__TenantId: tenant().tenantId
       Auth__ClientId: authClientId
+      Rag__OpenAiEndpoint: ai.outputs.openAiEndpoint
+      Rag__FoundryProjectEndpoint: ai.outputs.foundryProjectEndpoint
+      Rag__DocumentIntelligenceEndpoint: ai.outputs.documentIntelligenceEndpoint
+      Rag__ChatDeployment: chatModelDeploymentName
+      Rag__EmbeddingDeployment: embeddingModelDeploymentName
+      Rag__EmbeddingDimensions: string(embeddingDimensions)
+      Rag__PostgresHost: postgres.outputs.serverFqdn
+      Rag__PostgresDatabase: postgres.outputs.databaseName
+      Rag__BlobEndpoint: storage.outputs.blobEndpoint
+      Rag__QueueEndpoint: storage.outputs.queueEndpoint
+      Rag__DocumentsContainer: storage.outputs.documentsContainerName
+      Rag__DocumentProcessingQueue: storage.outputs.documentProcessingQueueName
+      Rag__ChunkSizeTokens: '512'
+      Rag__ChunkOverlapTokens: '64'
     }
     tags: union(tags, { 'azd-service-name': 'api' })
   }
@@ -196,7 +181,6 @@ module rbac 'modules/rbac.bicep' = {
     storageAccountId: storage.outputs.storageAccountId
     aiAccountId: ai.outputs.accountId
     keyVaultId: keyVault.outputs.keyVaultId
-    appConfigId: appConfig.outputs.appConfigId
   }
 }
 
@@ -222,8 +206,6 @@ output FUNCTION_APP_PRINCIPAL_ID string = functionApp.outputs.functionAppPrincip
 output POSTGRES_SERVER_NAME string = postgres.outputs.serverName
 output POSTGRES_FQDN string = postgres.outputs.serverFqdn
 output POSTGRES_DATABASE string = postgres.outputs.databaseName
-output APP_CONFIG_ENDPOINT string = appConfig.outputs.appConfigEndpoint
-output APP_CONFIG_NAME string = appConfig.outputs.appConfigName
 output KEY_VAULT_URI string = keyVault.outputs.keyVaultUri
 output POSTGRES_ADMIN_SECRET_NAME string = pgPasswordSecret.outputs.secretName
 output AI_FOUNDRY_ENDPOINT string = ai.outputs.endpoint

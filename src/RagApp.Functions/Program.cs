@@ -21,18 +21,6 @@ builder.UseMiddleware<ExceptionHandlingMiddleware>();
 
 TokenCredential credential = new DefaultAzureCredential();
 
-// Centralized configuration: Azure App Configuration with Key Vault references.
-var appConfigEndpoint = builder.Configuration["AppConfig:Endpoint"];
-if (!string.IsNullOrEmpty(appConfigEndpoint))
-{
-    builder.Configuration.AddAzureAppConfiguration(options =>
-    {
-        options.Connect(new Uri(appConfigEndpoint), credential)
-            .Select("Rag:*")
-            .ConfigureKeyVault(kv => kv.SetCredential(credential));
-    });
-}
-
 builder.Services.Configure<RagOptions>(builder.Configuration.GetSection(RagOptions.SectionName));
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
 

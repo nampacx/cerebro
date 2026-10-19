@@ -8,7 +8,7 @@ public class RagOptions
     /// <summary>Project-scoped Foundry endpoint (`https://{account}.services.ai.azure.com/api/projects/{project}`), required to reach the conversations API; the account endpoint alone 404s.</summary>
     public string FoundryProjectEndpoint { get; set; } = string.Empty;
     public string DocumentIntelligenceEndpoint { get; set; } = string.Empty;
-    public string ChatDeployment { get; set; } = "gpt-5";
+    public string ChatDeployment { get; set; } = "gpt-5.1-chat";
     public string EmbeddingDeployment { get; set; } = "text-embedding-3-large";
     public int EmbeddingDimensions { get; set; } = 1536;
     public string PostgresHost { get; set; } = string.Empty;

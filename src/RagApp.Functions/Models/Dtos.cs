@@ -12,6 +12,8 @@ public record DocumentInfo(
 
 public record ChunkRecord(int Index, string Content, string CitationJson, float[] Embedding);
 
+public record DocumentBlobInfo(string Filename, string BlobUrl, string? ContentType);
+
 public record Citation(string Filename, int? Page, int ChunkIndex, string DocumentId);
 
 public record SearchResult(Guid ChunkId, Guid DocumentId, string Content, string CitationJson, double Similarity);
@@ -27,7 +29,8 @@ public record UploadResponse(Guid DocumentId, string Filename, string Status);
 
 public record ConversationSummary(string Id, string Title, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
 
-public record ConversationMessage(string Role, string Text, DateTimeOffset? CreatedAt);
+public record ConversationMessage(
+    string Role, string Text, DateTimeOffset? CreatedAt, IReadOnlyList<CitationResult>? Citations = null);
 
 public record CreateConversationRequest(string? Title);
 

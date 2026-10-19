@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using Azure.Core;
 using Microsoft.Extensions.Logging;
@@ -21,6 +22,14 @@ public class FoundryConversationService
     // the plain account endpoint 404s. That host authorizes against the ai.azure.com audience, not
     // cognitiveservices.azure.com.
     private static readonly string[] Scope = ["https://ai.azure.com/.default"];
+
+    // Foundry conversation items only carry a plain-text message body - there's no structured
+    // field for citations. Smuggling them as a trailing marker in the stored text keeps Foundry's
+    // own history the single source of truth instead of adding a second store that could drift
+    // out of sync with it. Stripped back out (and never shown or replayed to the agent) in
+    // DecodeContent.
+    private const string CitationsMarker = "\n<!--citations:";
+    private const string CitationsMarkerEnd = "-->";
 
     private readonly HttpClient _httpClient;
     private readonly TokenCredential _credential;
@@ -100,9 +109,21 @@ public class FoundryConversationService
             {
                 type = "message",
                 role = m.Role,
-                content = m.Text
+                content = EncodeContent(m)
             }).ToArray()
         }, ct);
+    }
+
+    private static string EncodeContent(ConversationMessage message)
+    {
+        if (message.Citations is not { Count: > 0 })
+        {
+            return message.Text;
+        }
+
+        var json = JsonSerializer.Serialize(message.Citations);
+        var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
+        return $"{message.Text}{CitationsMarker}{encoded}{CitationsMarkerEnd}";
     }
 
     public async Task<IReadOnlyList<ConversationMessage>> GetMessagesAsync(
@@ -125,14 +146,40 @@ public class FoundryConversationService
             }
 
             var role = item.TryGetProperty("role", out var r) ? r.GetString() ?? "assistant" : "assistant";
-            var text = ExtractText(item);
-            if (!string.IsNullOrWhiteSpace(text))
+            var rawText = ExtractText(item);
+            if (string.IsNullOrWhiteSpace(rawText))
             {
-                messages.Add(new ConversationMessage(role, text, null));
+                continue;
             }
+
+            var (text, citations) = DecodeContent(rawText);
+            messages.Add(new ConversationMessage(role, text, null, citations));
         }
 
         return messages;
+    }
+
+    /// <summary>Reverses <see cref="EncodeContent"/>. A false-positive marker match (vanishingly
+    /// unlikely in real prose) just fails to decode and falls back to the raw text untouched.</summary>
+    private static (string Text, IReadOnlyList<CitationResult>? Citations) DecodeContent(string raw)
+    {
+        var markerIndex = raw.IndexOf(CitationsMarker, StringComparison.Ordinal);
+        if (markerIndex < 0 || !raw.EndsWith(CitationsMarkerEnd, StringComparison.Ordinal))
+        {
+            return (raw, null);
+        }
+
+        var encoded = raw[(markerIndex + CitationsMarker.Length)..^CitationsMarkerEnd.Length];
+        try
+        {
+            var json = Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
+            var citations = JsonSerializer.Deserialize<IReadOnlyList<CitationResult>>(json);
+            return (raw[..markerIndex], citations);
+        }
+        catch (Exception ex) when (ex is FormatException or JsonException)
+        {
+            return (raw, null);
+        }
     }
 
     public async Task DeleteConversationAsync(string conversationId, CancellationToken ct = default)

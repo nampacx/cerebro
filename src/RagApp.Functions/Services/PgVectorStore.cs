@@ -227,6 +227,38 @@ public class PgVectorStore : IAsyncDisposable
         return results;
     }
 
+    /// <summary>
+    /// Blob location for a single document. Deliberately stricter than RLS visibility: group
+    /// sharing lets a document be searched and cited in chat, but downloading the original
+    /// file is owner-only, so this filters on owner_oid explicitly rather than just relying
+    /// on <see cref="SetUserContextAsync"/> + the documents_select policy the way
+    /// <see cref="ListDocumentsAsync"/> does. Null when the document doesn't exist, isn't
+    /// visible to the caller at all, or is visible only via group sharing - never
+    /// distinguishable from each other.
+    /// </summary>
+    public async Task<DocumentBlobInfo?> GetDocumentBlobInfoAsync(UserContext user, Guid documentId, CancellationToken ct = default)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await SetUserContextAsync(conn, tx, user, ct);
+
+        await using var cmd = new NpgsqlCommand(
+            "SELECT filename, blob_url, content_type FROM documents WHERE id = @id AND owner_oid = @owner", conn, tx);
+        cmd.Parameters.AddWithValue("id", documentId);
+        cmd.Parameters.AddWithValue("owner", user.ObjectId);
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct))
+        {
+            return null;
+        }
+
+        return new DocumentBlobInfo(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.IsDBNull(2) ? null : reader.GetString(2));
+    }
+
     /// <summary>Records a new Foundry conversation, or renames an existing one owned by the caller.</summary>
     public async Task AddConversationAsync(UserContext user, string conversationId, string title, CancellationToken ct = default)
     {

@@ -45,6 +45,21 @@ resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2025-08-01' = {
   }
 }
 
+// Public network access alone only opens the listener - PostgreSQL Flexible Server still
+// drops every connection without a matching firewall rule. There's no VNet integration in
+// this stack for the function app to reach the server through instead, so without this rule
+// its outbound calls (from the platform's shared, unpredictable outbound IPs) are dropped
+// outright. This specific start/end IP pair is Azure's documented sentinel for "allow public
+// access from any Azure service within Azure to this server" - it is not a literal 0.0.0.0/0.
+resource allowAzureServices 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2025-08-01' = {
+  parent: server
+  name: 'AllowAllAzureServicesAndResourcesWithinAzureIps'
+  properties: {
+    startIpAddress: '0.0.0.0'
+    endIpAddress: '0.0.0.0'
+  }
+}
+
 resource entraAdmin 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2025-08-01' = {
   parent: server
   name: entraAdminObjectId

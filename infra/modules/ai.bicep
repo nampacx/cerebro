@@ -4,8 +4,8 @@ param accountName string
 param projectName string
 param tags object = {}
 
-param chatModelDeploymentName string = 'gpt-5'
-param chatModelName string = 'gpt-5'
+param chatModelDeploymentName string = 'gpt-5.1-chat'
+param chatModelName string = 'gpt-5.1-chat'
 param chatModelVersion string = ''
 param chatModelCapacity int = 50
 param embeddingModelDeploymentName string = 'text-embedding-3-large'
@@ -45,10 +45,14 @@ resource project 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-previ
   }
 }
 
-// Every child write (model deployments) briefly moves the parent account back to a
-// non-terminal "Accepted" provisioning state. Anything touching the account concurrently
-// fails with AccountProvisioningStateInvalid, so the deployments below are deliberately
-// serialized rather than left to run in parallel.
+// Every child write (the project, model deployments) briefly moves the parent account back
+// to a non-terminal "Accepted" provisioning state. Anything touching the account concurrently
+// fails - confirmed live as "RequestConflict: Another operation is in progress on the
+// resource" when `project` and `chatDeployment` were left to run in parallel (nothing used to
+// serialize them explicitly; the BYO Foundry storage connections, now removed, happened to do
+// it as a side effect by being children of `project` that `chatDeployment` depended on). So
+// the chain below is deliberately explicit: account -> project -> chatDeployment ->
+// embeddingDeployment.
 resource chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {
   parent: account
   name: chatModelDeploymentName
@@ -63,6 +67,7 @@ resource chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-0
       version: empty(chatModelVersion) ? null : chatModelVersion
     }
   }
+  dependsOn: [project]
 }
 resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {
   parent: account

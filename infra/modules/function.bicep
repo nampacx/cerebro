@@ -5,7 +5,6 @@ param functionAppName string
 param tags object = {}
 param storageAccountName string
 param appInsightsConnectionString string
-param appConfigEndpoint string
 param keyVaultUri string
 @description('Entra app registration (client) ID used for Easy Auth and token validation. Leave empty to skip Easy Auth configuration.')
 param authClientId string = ''
@@ -43,7 +42,6 @@ var baseAppSettings = [
   { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'dotnet-isolated' }
   { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsightsConnectionString }
   { name: 'WEBSITE_RUN_FROM_PACKAGE', value: '1' }
-  { name: 'AppConfig__Endpoint', value: appConfigEndpoint }
   { name: 'KeyVault__Uri', value: keyVaultUri }
 ]
 
