@@ -118,12 +118,21 @@ public class RagAgentService
         messages.Add(new ChatMessage(ChatRole.User, message));
 
         var response = await agent.RunAsync(messages, cancellationToken: ct);
+        var answer = response.Text ?? string.Empty;
 
+        // The retrieval tool accumulates one citation per chunk it returns, across every
+        // search_documents call the agent makes. Most of those chunks never end up backing
+        // anything in the final answer, so only keep the ones the model actually cited inline
+        // (per the "[filename, page X]" format in Instructions) rather than dumping every
+        // retrieved chunk as a numbered source.
         var distinctCitations = citations
             .GroupBy(c => (c.DocumentId, c.Page, c.ChunkIndex))
             .Select(g => g.First())
+            .Where(c => answer.Contains(
+                c.Page.HasValue ? $"{c.Filename}, page {c.Page}" : c.Filename,
+                StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        return new ChatResponse(response.Text, distinctCitations, conversationId);
+        return new ChatResponse(answer, distinctCitations, conversationId);
     }
 }

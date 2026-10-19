@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { api, type CitationResult, type ConversationSummary } from '../api';
 
 interface DisplayMessage {
@@ -126,7 +127,9 @@ export function ChatView() {
           {messages.length === 0 && <p className="empty">Ask a question about your documents.</p>}
           {messages.map((message, index) => (
             <div key={index} className={`message ${message.role}`}>
-              <div className="text">{message.text}</div>
+              <div className="text">
+                <ReactMarkdown>{message.text}</ReactMarkdown>
+              </div>
               {message.citations && message.citations.length > 0 && (
                 <ul className="citations">
                   {message.citations.map((citation, i) => (
