@@ -7,8 +7,6 @@ param cosmosConnectionName string
 param storageConnectionName string
 @description('Name of the project connection to the Azure AI Search service used for the agent vector store.')
 param searchConnectionName string
-@description('Resource id of the delegated (Microsoft.App/environments) subnet the account is injected into (ai.bicep\'s networkInjections). Only the account-level capability host takes this explicitly - it must match the subnet recorded on the account, or the resource provider rejects the update. The project-level capability host inherits the subnet from the account automatically and rejects the property outright ("CapabilityHost for Project cannot be created with Subnet").')
-param agentSubnetId string
 
 resource account 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' existing = {
   name: accountName
@@ -19,12 +17,19 @@ resource project 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-previ
   name: projectName
 }
 
+// The resource provider silently registers the account-level Agents capability host
+// internally as '{accountName}@aml_aiagentservice' regardless of the name requested here
+// (confirmed by listing capabilityHosts on the account - GET by this requested name 404s even
+// once the host is fully provisioned and working). That internal name isn't usable as a client-
+// supplied name ("@" fails ARM's own name validation: only alphanumeric/dash/underscore), so it
+// can't be matched from here - if this create ever again fails with "already exists...for the
+// same ClientId", delete the account's actual capability host by its true internal name first
+// (see the note in CLAUDE.md's gotchas), then retry.
 resource accountCapabilityHost 'Microsoft.CognitiveServices/accounts/capabilityHosts@2025-04-01-preview' = {
   parent: account
   name: '${accountName}-caphost'
   properties: {
     capabilityHostKind: 'Agents'
-    customerSubnet: agentSubnetId
   }
 }
 

@@ -8,8 +8,7 @@ That's the whole idea here, minus the psychic helmet. 🪖 Every query against t
 
 ## 🧭 Principles
 
-- 🔒 **RLS is the only ACL.** There is no parallel "check permissions in code" path — retrieval, listing, chat, all go through the same PostgreSQL policies. If a query bypasses `SetUserContextAsync`, it returns *zero rows*, never *someone else's* rows.
-- 🕸️ **Private by default.** `PUBLIC_NETWORK_ACCESS=Disabled` is the default, not an add-on — PostgreSQL, Storage, Cosmos DB, Key Vault, App Configuration, Azure AI Search and Foundry all sit behind private endpoints in a VNet. The SPA and the Function App's own front door stay public by design (someone has to answer the browser); everything behind them doesn't have to.
+- 🔒 **RLS is the only ACL.** There is no parallel "check permissions in code" path — retrieval, listing, chat, all go through the same PostgreSQL policies. If a query bypasses `SetUserContextAsync`, it returns *zero rows*, never *someone else's* rows. This is the access-control boundary — not network isolation. Every backing service is publicly reachable; what a caller can *see* is decided entirely by the database.
 - 🪪 **Entra ID end-to-end.** The same `oid`/`groups` claims that get a user through the front door are what the database reads to decide what they can see. Identity doesn't get translated or re-derived anywhere in between.
 - 🧩 **Bring your own Foundry services.** Chat history lives in *your* Cosmos DB, not a black box you can't audit. This is a wiring pattern for BYO storage, not a hosted SaaS.
 - 🏗️ **Managed identity everywhere.** The app talks to Postgres, Blob/Queue/Table, Cosmos, Key Vault, App Configuration and Foundry as itself — no connection strings, no secrets sitting in config waiting to leak.
@@ -25,7 +24,7 @@ That's the whole idea here, minus the psychic helmet. 🪖 Every query against t
 - **Azure Static Web App** (React + Vite) example client with document upload, status tracking and a chat UI with conversation history
 - **Entra ID authorization** end to end — the caller's `oid`/`groups` claims drive RLS on every retrieval
 - **A2A**: agent card + JSON-RPC endpoint, including the **on-behalf-of (OBO)** flow so partner agents act *as the end user*, never as themselves
-- **Enterprise networking**: VNet integration, private endpoints + private DNS everywhere it matters, managed identity everywhere, Key Vault for secrets, App Configuration for app settings
+- **Managed identity everywhere**: no connection strings or secrets in config; Key Vault for secrets, App Configuration for app settings
 
 ```mermaid
 flowchart LR
@@ -48,7 +47,7 @@ flowchart LR
 
 | Path | Purpose |
 |---|---|
-| `infra/` | Bicep (azd-compatible): VNet, private endpoints, PostgreSQL, Foundry + Cosmos DB thread storage + Azure AI Search, Function App, Static Web App, Key Vault, App Configuration, monitoring |
+| `infra/` | Bicep (azd-compatible): PostgreSQL, Foundry + Cosmos DB thread storage + Azure AI Search, Function App, Static Web App, Key Vault, App Configuration, monitoring |
 | `db/schema.sql` | pgvector schema, tables and row-level security policies — the actual "Cerebro" |
 | `scripts/setup.ps1` | **One-shot setup**: prerequisites, azd environment, app registration, `azd up`, post-deployment redirect URIs and (optionally) the database |
 | `scripts/setup-app-registration.ps1` | Creates/updates the Entra ID app registration (API scope, groups claim, redirect URIs, client secret) |
@@ -122,7 +121,7 @@ That single script does everything:
 1. Verifies `az` / `azd` and the signed-in Azure context.
 2. Creates or selects the azd environment.
 3. Creates/updates the **Entra ID app registration** — `access_as_user` scope, `groups` claim, SPA + Static Web Apps redirect URIs, client secret — and writes `AUTH_CLIENT_ID` / `AUTH_CLIENT_SECRET` into the environment.
-4. Sets the remaining azd settings (PostgreSQL Entra admin, location, network access). **No password is set** — the PostgreSQL admin password is generated inside Bicep and stored in Key Vault as `postgres-admin-password`.
+4. Sets the remaining azd settings (PostgreSQL Entra admin, location). **No password is set** — the PostgreSQL admin password is generated inside Bicep and stored in Key Vault as `postgres-admin-password`.
 5. Runs `azd up` (provision + deploy).
 6. Registers the deployed Static Web App origin on the app registration and redeploys the web client so `config.json` picks up the final values.
 7. Optionally initializes the database (`-InitializeDatabase`).
@@ -131,8 +130,7 @@ Useful switches:
 
 | Switch | Purpose |
 |---|---|
-| `-PublicNetworkAccess Enabled` | Dev/test: reach PostgreSQL and the other services from your machine |
-| `-InitializeDatabase` | Also run `setup-database.ps1` after deployment (requires `psql` and public access) |
+| `-InitializeDatabase` | Also run `setup-database.ps1` after deployment (requires `psql`) |
 | `-SkipDeploy` | Only configure the app registration and the azd environment |
 | `-Location` / `-StaticWebAppLocation` | Override the default `swedencentral` / `westeurope` regions |
 | `-AppRegistrationDisplayName` | Name of the Entra app registration (defaults to the environment name) |
@@ -147,7 +145,6 @@ azd env new cerebro-dev
 ./scripts/setup-app-registration.ps1 -DisplayName cerebro-dev -ApplyToAzdEnv
 azd env set POSTGRES_ENTRA_ADMIN_OBJECT_ID (az ad signed-in-user show --query id -o tsv)
 azd env set POSTGRES_ENTRA_ADMIN_PRINCIPAL_NAME (az ad signed-in-user show --query userPrincipalName -o tsv)
-azd env set PUBLIC_NETWORK_ACCESS Disabled   # Enabled for dev/test
 azd up
 ./scripts/setup-app-registration.ps1 -DisplayName cerebro-dev -StaticWebAppHostname (azd env get-value STATIC_WEB_APP_URL) -SkipSecret
 azd deploy web
@@ -159,7 +156,7 @@ Equivalent portal steps for the app registration: expose an API with scope `acce
 
 ### 3. Initialize the database
 
-Run from a network with access to the server (private endpoint, or temporarily set `PUBLIC_NETWORK_ACCESS=Enabled`):
+The server is publicly reachable, so this can run from any machine with network access to it:
 
 ```powershell
 ./scripts/setup-database.ps1 -ServerName <psql-server-name> -FunctionAppName <function-app-name>
@@ -242,6 +239,5 @@ npm run dev
 - Conversation ownership is enforced by the Azure Table index, so Foundry conversation ids are never usable across users (including through the A2A `contextId`).
 - `disableLocalAuth` is set on Foundry and App Configuration; storage blob public access is off.
 - Easy Auth (`authsettingsV2`) rejects unauthenticated requests at the platform edge when `AUTH_CLIENT_ID` is set; the code additionally validates the JWT and extracts `oid`/`groups` for RLS.
-- With `PUBLIC_NETWORK_ACCESS=Disabled`, the *backing* services (PostgreSQL, Storage, Cosmos DB, Key Vault, App Configuration, Azure AI Search and Foundry) are reachable only through private endpoints inside the VNet, and the function app reaches them over VNet integration. The function app's own front end stays internet-facing by design: the SPA calls it from the browser, and it is protected by Easy Auth plus code-level JWT validation rather than by network isolation. The Static Web App is likewise public.
-- **App Configuration is the one exception during provisioning.** ARM writes its key-values over the *data* plane, which it cannot reach through a private endpoint unless the deployment itself runs inside the VNet. The store is therefore created with `dataPlaneProxy.authenticationMode: Pass-through`, opened by the azd `preprovision` hook (`scripts/unlock-appconfig-network.*`) and closed again by the `postprovision` hook (`scripts/lock-appconfig-network.*`) once the key-values are written. Opening it in a separate step rather than in the template itself is deliberate: a network rule change made during the deployment takes up to a minute to reach the data plane, so same-deployment writes fail intermittently with `Forbidden`. `disableLocalAuth` stays `true` throughout, so the store never accepts anything but Entra credentials, and the deploying principal is granted App Configuration Data Owner so the pass-through writes succeed. If the hook is interrupted, re-run `azd provision` or close the window manually with `az appconfig update --name <store> --resource-group <rg> --enable-public-network false`.
+- **No VNet, no private endpoints.** Every backing service (PostgreSQL, Storage, Cosmos DB, Key Vault, App Configuration, Azure AI Search and Foundry) deploys with public network access enabled, same as the Function App and the Static Web App. Network isolation is not part of the threat model here — native PostgreSQL row-level security is the access-control boundary, and Easy Auth plus code-level JWT validation protect the Function App's front door.
 - The PostgreSQL local admin password is **generated during deployment** from a per-deployment GUID (`newGuid()`), never handled by a human or written to the azd environment, and stored in Key Vault as `postgres-admin-password`. It exists only for break-glass access — the application authenticates with Entra. Because it is regenerated on each `azd up`, pin it with `azd env set POSTGRES_ADMIN_PASSWORD '<value>'` if you need a stable value.

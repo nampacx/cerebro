@@ -1,9 +1,8 @@
-@description('Elastic Premium Function App (.NET isolated) with VNet integration, system-assigned identity, and optional Entra ID Easy Auth.')
+@description('Elastic Premium Function App (.NET isolated) with system-assigned identity and optional Entra ID Easy Auth.')
 param location string
 param planName string
 param functionAppName string
 param tags object = {}
-param appIntegrationSubnetId string
 param storageAccountName string
 param appInsightsConnectionString string
 param appConfigEndpoint string
@@ -46,7 +45,6 @@ var baseAppSettings = [
   { name: 'WEBSITE_RUN_FROM_PACKAGE', value: '1' }
   { name: 'AppConfig__Endpoint', value: appConfigEndpoint }
   { name: 'KeyVault__Uri', value: keyVaultUri }
-  { name: 'WEBSITE_CONTENTOVERVNET', value: '1' }
 ]
 
 var additionalSettingsArray = [
@@ -67,11 +65,6 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
   properties: {
     serverFarmId: plan.id
     httpsOnly: true
-    virtualNetworkSubnetId: appIntegrationSubnetId
-    // Renamed from vnetRouteAllEnabled, removed in this API version.
-    outboundVnetRouting: {
-      applicationTraffic: true
-    }
     siteConfig: {
       netFrameworkVersion: 'v10.0'
       use32BitWorkerProcess: false

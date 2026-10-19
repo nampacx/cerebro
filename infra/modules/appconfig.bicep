@@ -1,10 +1,7 @@
-@description('Azure App Configuration store with key-values and private endpoint.')
+@description('Azure App Configuration store with key-values.')
 param location string
 param appConfigName string
 param tags object = {}
-param publicNetworkAccess string = 'Disabled'
-param privateEndpointSubnetId string
-param appConfigDnsZoneId string
 param keyValues array = []
 @description('Object id of the principal running the deployment. Because local auth is disabled, ARM writes key-values through the data-plane proxy using this identity, so it needs App Configuration Data Owner.')
 param deployerPrincipalId string = ''
@@ -22,14 +19,11 @@ resource appConfig 'Microsoft.AppConfiguration/configurationStores@2024-06-01' =
   }
   properties: {
     disableLocalAuth: true
-    publicNetworkAccess: publicNetworkAccess
+    publicNetworkAccess: 'Enabled'
     dataPlaneProxy: {
       // Local auth is disabled, so ARM must forward data-plane calls (the keyValues
       // resources below) using the caller's Entra identity instead of an access key.
       authenticationMode: 'Pass-through'
-      // ARM runs outside the VNet; honouring private link here would make key-value
-      // writes unreachable while publicNetworkAccess is Disabled.
-      privateLinkDelegation: 'Disabled'
     }
   }
 }
@@ -54,19 +48,6 @@ resource configKeyValues 'Microsoft.AppConfiguration/configurationStores/keyValu
     dependsOn: [deployerDataOwner]
   }
 ]
-
-module privateEndpoint 'private-endpoint.bicep' = {
-  name: 'pe-${appConfigName}'
-  params: {
-    location: location
-    name: 'pe-${appConfigName}'
-    subnetId: privateEndpointSubnetId
-    targetResourceId: appConfig.id
-    groupId: 'configurationStores'
-    dnsZoneIds: [appConfigDnsZoneId]
-    tags: tags
-  }
-}
 
 output appConfigName string = appConfig.name
 output appConfigEndpoint string = appConfig.properties.endpoint

@@ -23,9 +23,6 @@
     "postgresAdminPassword": {
       "value": "${POSTGRES_ADMIN_PASSWORD=}"
     },
-    "publicNetworkAccess": {
-      "value": "${PUBLIC_NETWORK_ACCESS=Disabled}"
-    },
     "authClientSecret": {
       "value": "${AUTH_CLIENT_SECRET=}"
     },
@@ -37,9 +34,6 @@
     },
     "searchSku": {
       "value": "${SEARCH_SKU=basic}"
-    },
-    "appConfigPublicNetworkAccess": {
-      "value": "${APP_CONFIG_PUBLIC_NETWORK_ACCESS=Enabled}"
     }
   }
 }

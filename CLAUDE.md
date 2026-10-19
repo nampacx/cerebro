@@ -21,13 +21,13 @@ npm run build                 # generate-config + tsc -b + vite build
 
 ```powershell
 # Full provision + deploy (creates app registration, azd env, runs azd up)
-./scripts/setup.ps1 -EnvironmentName cerebro-dev -PublicNetworkAccess Enabled -InitializeDatabase
+./scripts/setup.ps1 -EnvironmentName cerebro-dev -InitializeDatabase
 
 # Redeploy one service after code changes
 azd deploy api
 azd deploy web
 
-# Apply db/schema.sql and create the managed-identity role (needs psql + network access to the server)
+# Apply db/schema.sql and create the managed-identity role (needs psql on PATH)
 ./scripts/setup-database.ps1 -ServerName <psql-server-name> -FunctionAppName <function-app-name>
 ```
 
@@ -79,6 +79,6 @@ The SPA authenticates twice by necessity ([src/web/src/auth.ts](src/web/src/auth
 ## Gotchas
 
 - **Windows long paths**: the Functions build emits deeply nested `obj/.../WorkerExtensions/...` paths and can fail with `MSB3030` if the repo path is long. Build from a shorter path or enable Win32 long paths.
-- Default `PUBLIC_NETWORK_ACCESS=Disabled` puts every backing service behind private endpoints; `setup-database.ps1` and any local `psql` need `Enabled` or VNet access.
+- All backing services deploy with public network access enabled — there is no VNet or private endpoint in this stack. RLS, not network isolation, is the access-control boundary; see "The RLS invariant" above.
 - The PostgreSQL admin password is generated inside Bicep from `newGuid()` on **every** `azd up` and stored in Key Vault as `postgres-admin-password`. Pin it with `azd env set POSTGRES_ADMIN_PASSWORD '<value>'` if a stable value is needed.
 - If the Foundry `Agents` capability host fails to deploy in a region, `azd env set USE_CUSTOM_FOUNDRY_STORAGE false` falls back to Microsoft-managed thread storage.

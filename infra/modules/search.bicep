@@ -1,4 +1,4 @@
-@description('Azure AI Search service backing the Foundry agent vector store, with private endpoint. Application retrieval is served by pgvector; this service exists because the Agents capability host requires a vectorStoreConnections entry alongside thread and file storage.')
+@description('Azure AI Search service backing the Foundry agent vector store. Application retrieval is served by pgvector; this service exists because the Agents capability host requires a vectorStoreConnections entry alongside thread and file storage.')
 param location string
 param searchServiceName string
 param tags object = {}
@@ -7,9 +7,6 @@ param tags object = {}
 param sku string = 'basic'
 @description('Entra-only access. The Foundry connection uses authType "AAD" and the project identity holds the Search data-plane roles, so API keys are not needed. The official Foundry sample instead leaves local auth on ("aadOrApiKey"); set this to false if the agent runtime turns out to require key access.')
 param disableLocalAuth bool = true
-param publicNetworkAccess string = 'Disabled'
-param privateEndpointSubnetId string
-param searchDnsZoneId string
 
 resource search 'Microsoft.Search/searchServices@2025-05-01' = {
   name: searchServiceName
@@ -28,20 +25,7 @@ resource search 'Microsoft.Search/searchServices@2025-05-01' = {
     semanticSearch: 'disabled'
     disableLocalAuth: disableLocalAuth
     authOptions: disableLocalAuth ? null : { aadOrApiKey: { aadAuthFailureMode: 'http401WithBearerChallenge' } }
-    publicNetworkAccess: toLower(publicNetworkAccess)
-  }
-}
-
-module privateEndpoint 'private-endpoint.bicep' = {
-  name: 'pe-${searchServiceName}'
-  params: {
-    location: location
-    name: 'pe-${searchServiceName}'
-    subnetId: privateEndpointSubnetId
-    targetResourceId: search.id
-    groupId: 'searchService'
-    dnsZoneIds: [searchDnsZoneId]
-    tags: tags
+    publicNetworkAccess: 'enabled'
   }
 }
 

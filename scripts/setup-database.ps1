@@ -1,13 +1,12 @@
 <#
 .SYNOPSIS
 Sets up the Cerebro database: creates the managed-identity role for the function app
-and applies db/schema.sql with grants. Run after `azd up` while connected to a
-network that can reach the PostgreSQL server (private endpoint or temporary
-public access).
+and applies db/schema.sql with grants. Run after `azd up`; the server is publicly
+reachable, and native PostgreSQL row-level security is the access-control boundary,
+not network isolation.
 
-When the server is publicly reachable, this machine's address is added to its
-firewall first - see the note in Set-ClientFirewallRule for why public network
-access does not imply that on its own.
+This machine's address is added to the server's firewall first - see the note in
+Set-ClientFirewallRule for why public network access does not imply that on its own.
 
 .EXAMPLE
 ./scripts/setup-database.ps1 -ServerName psql-abc123 -Database ragdb -FunctionAppName func-abc123
@@ -17,7 +16,7 @@ access does not imply that on its own.
 ./scripts/setup-database.ps1 -ServerName psql-abc123 -FunctionAppName func-abc123 -AdminUser 'admin@contoso.com'
 
 .EXAMPLE
-# From inside the VNet, where the private endpoint already provides a route.
+# The firewall rule was already added (e.g. by an earlier run).
 ./scripts/setup-database.ps1 -ServerName psql-abc123 -FunctionAppName func-abc123 -SkipFirewallRule
 #>
 param(
@@ -63,7 +62,7 @@ function Set-ClientFirewallRule {
         if ($LASTEXITCODE -ne 0) { $Group = $null }
     }
     if ([string]::IsNullOrWhiteSpace($Group)) {
-        Write-Warning "Could not resolve the resource group for '$Server'; leaving the firewall untouched. Pass -ResourceGroup, or -SkipFirewallRule when connecting from inside the VNet."
+        Write-Warning "Could not resolve the resource group for '$Server'; leaving the firewall untouched. Pass -ResourceGroup, or -SkipFirewallRule if a rule already allows this machine."
         return
     }
 
@@ -123,7 +122,7 @@ for ($attempt = 1; $attempt -le 6; $attempt++) {
     if ($attempt -lt 6) { Start-Sleep -Seconds 10 }
 }
 if (-not $connected) {
-    throw "Could not connect to $hostName as '$AdminUser' after 6 attempts. Check that this machine's address is allowed through the firewall (or pass -SkipFirewallRule from inside the VNet), and that '$AdminUser' is the server's Entra administrator."
+    throw "Could not connect to $hostName as '$AdminUser' after 6 attempts. Check that this machine's address is allowed through the firewall, and that '$AdminUser' is the server's Entra administrator."
 }
 
 Write-Host "Creating Entra principal role for $FunctionAppName ..."
@@ -141,7 +140,7 @@ if ($LASTEXITCODE -ne 0) {
         # Never reaching the server and being rejected by it need different remedies, and
         # the two are easy to confuse: a blocked address times out rather than refusing.
         $hint = if ($principalResult -match 'timed out|could not connect|No route to host|Connection refused') {
-            "The server did not accept the connection. Public network access alone is not enough - PostgreSQL Flexible Server drops traffic from any address without a matching firewall rule, so add one for this machine or run from inside the VNet."
+            "The server did not accept the connection. Public network access alone is not enough - PostgreSQL Flexible Server drops traffic from any address without a matching firewall rule, so add one for this machine."
         }
         else {
             "'$AdminUser' must be the server's Entra administrator (POSTGRES_ENTRA_ADMIN_PRINCIPAL_NAME in the azd environment)."

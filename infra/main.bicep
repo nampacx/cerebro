@@ -29,10 +29,6 @@ param postgresAdminPassword string = ''
 @description('Random seed used to derive the generated PostgreSQL admin password. Do not set this manually - the default produces a new GUID per deployment.')
 param postgresAdminPasswordSeed string = newGuid()
 
-@description('Enabled for dev/test scenarios; Disabled for enterprise/production private-only access.')
-@allowed(['Enabled', 'Disabled'])
-param publicNetworkAccess string = 'Disabled'
-
 param chatModelDeploymentName string = 'gpt-5'
 param chatModelName string = 'gpt-5'
 param chatModelVersion string = ''
@@ -79,16 +75,6 @@ resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   tags: tags
 }
 
-module network 'modules/network.bicep' = {
-  name: 'network'
-  scope: rg
-  params: {
-    location: location
-    vnetName: 'vnet-${resourceToken}'
-    tags: tags
-  }
-}
-
 module monitoring 'modules/monitoring.bicep' = {
   name: 'monitoring'
   scope: rg
@@ -106,12 +92,6 @@ module storage 'modules/storage.bicep' = {
   params: {
     location: location
     storageAccountName: 'st${resourceToken}'
-    publicNetworkAccess: publicNetworkAccess
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    blobDnsZoneId: network.outputs.blobDnsZoneId
-    tableDnsZoneId: network.outputs.tableDnsZoneId
-    queueDnsZoneId: network.outputs.queueDnsZoneId
-    fileDnsZoneId: network.outputs.fileDnsZoneId
     contentShareName: toLower(functionAppName)
     tags: tags
   }
@@ -123,16 +103,6 @@ module cosmos 'modules/cosmos.bicep' = {
   params: {
     location: location
     accountName: 'cosmos-${resourceToken}'
-    publicNetworkAccess: publicNetworkAccess
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    cosmosDnsZoneId: network.outputs.cosmosDnsZoneId
-    // Reverted to always-empty: Cosmos DB's networkAclBypassResourceIds only supports
-    // Synapse Link / Data Factory / Azure ML workspace resource ids, not Cognitive
-    // Services/Foundry accounts, so passing foundryAccountResourceId here fails
-    // provisioning with "Invalid supplied NetworkAclBypassResourceId". The
-    // Foundry-Agents-to-Cosmos firewall bypass this was meant to provide still needs a
-    // different mechanism.
-    networkAclBypassResourceIds: []
     tags: tags
   }
 }
@@ -144,9 +114,6 @@ module search 'modules/search.bicep' = {
     location: location
     searchServiceName: 'srch-${resourceToken}'
     sku: searchSku
-    publicNetworkAccess: publicNetworkAccess
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    searchDnsZoneId: network.outputs.searchDnsZoneId
     tags: tags
   }
 }
@@ -157,9 +124,6 @@ module keyVault 'modules/keyvault.bicep' = {
   params: {
     location: location
     keyVaultName: 'kv-${resourceToken}'
-    publicNetworkAccess: publicNetworkAccess
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    keyVaultDnsZoneId: network.outputs.keyVaultDnsZoneId
     tags: tags
   }
 }
@@ -174,9 +138,6 @@ module postgres 'modules/postgres.bicep' = {
     entraAdminObjectId: postgresEntraAdminObjectId
     entraAdminPrincipalName: postgresEntraAdminPrincipalName
     entraAdminPrincipalType: postgresEntraAdminPrincipalType
-    publicNetworkAccess: publicNetworkAccess
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    postgresDnsZoneId: network.outputs.postgresDnsZoneId
     tags: tags
   }
 }
@@ -188,12 +149,6 @@ module ai 'modules/ai.bicep' = {
     location: location
     accountName: 'aif-${resourceToken}'
     projectName: 'cerebro-project'
-    publicNetworkAccess: publicNetworkAccess
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    agentSubnetId: network.outputs.agentSubnetId
-    cognitiveServicesDnsZoneId: network.outputs.cognitiveServicesDnsZoneId
-    openAiDnsZoneId: network.outputs.openAiDnsZoneId
-    aiServicesDnsZoneId: network.outputs.aiServicesDnsZoneId
     chatModelDeploymentName: chatModelDeploymentName
     chatModelName: chatModelName
     chatModelVersion: chatModelVersion
@@ -208,19 +163,12 @@ module ai 'modules/ai.bicep' = {
   }
 }
 
-@description('Public network access for the App Configuration store *during provisioning*. ARM writes key-values over the data plane, which it cannot reach through a private endpoint unless the deployment runs inside the VNet, so this defaults to Enabled and the azd postprovision hook closes it again. Local auth stays disabled, so Entra RBAC is enforced the whole time.')
-@allowed(['Enabled', 'Disabled'])
-param appConfigPublicNetworkAccess string = 'Enabled'
-
 module appConfig 'modules/appconfig.bicep' = {
   name: 'appconfig'
   scope: rg
   params: {
     location: location
     appConfigName: 'appcs-${resourceToken}'
-    publicNetworkAccess: appConfigPublicNetworkAccess
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    appConfigDnsZoneId: network.outputs.appConfigDnsZoneId
     deployerPrincipalId: postgresEntraAdminObjectId
     deployerPrincipalType: postgresEntraAdminPrincipalType
     tags: tags
@@ -265,7 +213,6 @@ module functionApp 'modules/function.bicep' = {
     location: location
     planName: 'plan-${resourceToken}'
     functionAppName: functionAppName
-    appIntegrationSubnetId: network.outputs.appIntegrationSubnetId
     storageAccountName: storage.outputs.storageAccountName
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
     appConfigEndpoint: appConfig.outputs.appConfigEndpoint
@@ -307,7 +254,6 @@ module foundryCapabilityHosts 'modules/foundry-caphost.bicep' = if (byoFoundrySt
     cosmosConnectionName: ai.outputs.cosmosConnectionName
     storageConnectionName: ai.outputs.storageConnectionName
     searchConnectionName: ai.outputs.searchConnectionName
-    agentSubnetId: network.outputs.agentSubnetId
   }
   dependsOn: [rbac]
 }
